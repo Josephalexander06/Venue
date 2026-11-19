@@ -36,13 +36,23 @@ const passwordSchema = z
   });
 
 export const loginSchema = z.object({
-  email: z.string().trim().toLowerCase().email('Enter a valid email address.'),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(255, 'Email is too long.')
+    .email('Enter a valid email address.'),
   password: z.string().min(1, 'Enter your password.').max(PASSWORD_MAX_LENGTH),
 });
 
 export const registrationSchema = z
   .object({
-    email: z.string().trim().toLowerCase().email('Enter a valid email address.'),
+    email: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .max(255, 'Email is too long.')
+      .email('Enter a valid email address.'),
     password: passwordSchema,
     firstName: z.string().trim().min(1, 'Enter your first name.').max(100),
     lastName: z.string().trim().min(1, 'Enter your last name.').max(100),

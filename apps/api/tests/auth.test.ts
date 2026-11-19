@@ -139,6 +139,20 @@ describe('registration and account approval', () => {
     });
     expect(weak.statusCode).toBe(400);
     expect(weak.json().code).toBe('VALIDATION_ERROR');
+
+    const longEmail = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        email: `${'a'.repeat(250)}@college.edu`,
+        password: 'StudentPass123!',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        departmentId: reference.departments.get('CS')!.id,
+      },
+    });
+    expect(longEmail.statusCode).toBe(400);
+    expect(longEmail.json().code).toBe('VALIDATION_ERROR');
   });
 
   it('rejects a pending account with a reason and keeps it out of active login', async () => {
