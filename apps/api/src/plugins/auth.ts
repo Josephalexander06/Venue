@@ -1,0 +1,45 @@
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
+import fp from 'fastify-plugin';
+import type { RoleName } from '@venue/shared';
+import type { Database } from '../db/index.js';
+import { AppError } from '../lib/errors.js';
+import { SESSION_COOKIE } from '../lib/tokens.js';
+import { resolveSession, revokeSession } from '../modules/auth/service.js';
+
+const authPlugin: FastifyPluginAsync<{ db: Database }> = async (app, { db }) => {
+  app.decorateRequest('auth');
+
+  const authenticate = async (request: FastifyRequest) => {
+    const token = request.cookies[SESSION_COOKIE];
+    if (!token) {
+      throw new AppError(401, 'UNAUTHENTICATED', 'Sign in to continue.');
+    }
+
+    const session = await resolveSession(db, token);
+    if (!session) {
+      throw new AppError(401, 'SESSION_EXPIRED', 'Your session has expired. Sign in again.');
+    }
+    if (session.user.status !== 'ACTIVE') {
+      await revokeSession(db, session.tokenHash);
+      throw new AppError(403, 'ACCOUNT_NOT_ACTIVE', 'This account is not active.');
+    }
+
+    request.auth = session;
+  };
+
+  const requireRole = (role: RoleName) => {
+    return async (request: FastifyRequest) => {
+      await authenticate(request);
+      const roles = request.auth?.user.roles.map((entry) => entry.role) ?? [];
+      const isAdmin = roles.includes('ADMINISTRATOR');
+      if (!isAdmin && !roles.includes(role)) {
+        throw new AppError(403, 'FORBIDDEN', 'You do not have permission to do that.');
+      }
+    };
+  };
+
+  app.decorate('authenticate', authenticate);
+  app.decorate('requireRole', requireRole);
+};
+
+export default fp(authPlugin, { name: 'auth', dependencies: ['@fastify/cookie'] });

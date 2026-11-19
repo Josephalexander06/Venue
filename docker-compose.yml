@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: venue_postgres
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: venue_dev
+      POSTGRES_USER: venue
+      POSTGRES_PASSWORD: venue
+    volumes:
+      - venue_pgdata:/var/lib/postgresql/data
+      - ./infra/init-databases.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U venue -d venue_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  venue_pgdata:
