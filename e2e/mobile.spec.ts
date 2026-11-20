@@ -1,18 +1,8 @@
-import { expect, test, type Page } from '@playwright/test';
-
-const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? 'admin@college.edu';
-const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'ChangeMeNow!2026';
-
-async function login(page: Page, email: string, password: string) {
-  await page.goto('/login');
-  await page.getByLabel('College email').fill(email);
-  await page.getByLabel('Password', { exact: true }).fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page).not.toHaveURL(/\/login$/);
-}
+import { expect, test } from '@playwright/test';
+import { loginAsAdmin } from './helpers/auth.js';
 
 test('mobile venue calendar and booking form stay usable', async ({ page }) => {
-  await login(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await loginAsAdmin(page);
   await expect(page).toHaveURL(/\/admin$/);
 
   await page.goto('/venues');

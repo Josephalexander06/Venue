@@ -1,5 +1,14 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// Automatically load local .env if present (supported natively in Node.js 20.6+)
+try {
+  if (typeof process.loadEnvFile === 'function') {
+    process.loadEnvFile();
+  }
+} catch {
+  // Ignore when .env is absent (e.g. CI environments with injected secrets)
+}
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
