@@ -12,6 +12,7 @@
     "build": "pnpm --filter @venue/shared build && pnpm --filter @venue/api build && pnpm --filter @venue/web build",
     "typecheck": "pnpm --filter @venue/shared build && pnpm -r typecheck",
     "test": "pnpm --filter @venue/api test",
+    "test:e2e": "playwright test",
     "lint": "eslint .",
     "db:generate": "pnpm --filter @venue/api db:generate",
     "db:migrate": "pnpm --filter @venue/api db:migrate",
@@ -19,6 +20,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^24.10.1",
     "eslint": "^9.39.1",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^7.0.1",

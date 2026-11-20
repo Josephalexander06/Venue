@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowRight,
+  Buildings,
   CheckCircle,
   ClockCountdown,
   Prohibit,
@@ -84,6 +85,9 @@ export function AdminOverviewPage() {
         description={`Welcome back, ${user?.firstName ?? 'administrator'}. Review account requests and keep access tightly scoped.`}
         actions={
           <>
+            <Link to="/admin/venues" className="btn btn-ghost btn-md">
+              <Buildings size={17} /> Venues
+            </Link>
             <Link to="/admin/users" className="btn btn-secondary btn-md">
               <UsersThree size={17} /> All accounts
             </Link>

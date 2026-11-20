@@ -11,6 +11,9 @@ declare module 'fastify' {
   interface FastifyInstance {
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireRole: (role: RoleName) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireAnyRole: (
+      roles: readonly RoleName[],
+    ) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 

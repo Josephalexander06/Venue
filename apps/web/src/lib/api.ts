@@ -1,10 +1,18 @@
 import type {
   ApiErrorBody,
   AuthSessionResponse,
+  EventInput,
+  EventStatus,
+  EventUpdateInput,
   RegistrationInput,
+  RequestStatus,
   RoleName,
   SessionUser,
   UserStatus,
+  VenueInput,
+  VenueRequestInput,
+  VenueRequestUpdateInput,
+  VenueUpdateInput,
 } from '@venue/shared';
 
 export interface Department {
@@ -28,6 +36,114 @@ export interface AdminStats {
 export interface UserList {
   users: UserView[];
   total: number;
+}
+
+
+export interface Venue {
+  id: string;
+  code: string;
+  name: string;
+  building: string;
+  floor: number;
+  capacity: number;
+  facilities: string[];
+  setupBufferMins: number;
+  teardownBufferMins: number;
+  isActive: boolean;
+  department: { id: string; code: string; name: string } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VenueList {
+  venues: Venue[];
+  total: number;
+}
+
+export interface VenueListParams {
+  search?: string;
+  building?: string;
+  departmentId?: string;
+  minCapacity?: number;
+  active?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CalendarEntry {
+  id: string;
+  kind: 'CONFIRMED' | 'PENDING';
+  requestId: string;
+  eventId: string;
+  title: string;
+  startTime: string;
+  endTime: string;
+  rangeStart: string;
+  rangeEnd: string;
+  status: RequestStatus;
+  setupBufferMins: number;
+  teardownBufferMins: number;
+}
+
+export interface VenueCalendar {
+  venue: Venue;
+  entries: CalendarEntry[];
+}
+
+export interface Conflict {
+  requestId: string;
+  eventId: string;
+  title: string;
+  status: RequestStatus;
+  startTime: string;
+  endTime: string;
+  rangeStart: string;
+  rangeEnd: string;
+}
+
+export interface Availability {
+  venue: Venue;
+  effectiveRange: { start: string; end: string };
+  hasConfirmedConflict: boolean;
+  confirmedConflicts: Conflict[];
+  pendingConflicts: Conflict[];
+}
+
+export interface RequestView {
+  id: string;
+  eventId: string;
+  venue: { id: string; code: string; name: string; building: string; floor: number };
+  startTime: string;
+  endTime: string;
+  effectiveStart: string;
+  effectiveEnd: string;
+  setupBufferMins: number;
+  teardownBufferMins: number;
+  status: RequestStatus;
+  currentStepOrder: number;
+  rejectionReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EventSummary {
+  id: string;
+  title: string;
+  description: string | null;
+  expectedAttendance: number;
+  status: EventStatus;
+  department: { id: string; code: string; name: string };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EventView extends EventSummary {
+  requests: RequestView[];
+}
+
+export interface RequestDetail {
+  request: RequestView;
+  event: EventSummary;
 }
 
 export interface RoleAssignment {
@@ -137,6 +253,111 @@ export const api = {
 
   departments() {
     return request<{ departments: Department[] }>('/departments');
+  },
+
+  venues(params: VenueListParams = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.set('search', params.search);
+    if (params.building) query.set('building', params.building);
+    if (params.departmentId) query.set('departmentId', params.departmentId);
+    if (params.minCapacity) query.set('minCapacity', String(params.minCapacity));
+    if (params.active !== undefined) query.set('active', String(params.active));
+    query.set('limit', String(params.limit ?? 50));
+    query.set('offset', String(params.offset ?? 0));
+    return request<VenueList>(`/venues?${query.toString()}`);
+  },
+
+  adminVenues(params: VenueListParams = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.set('search', params.search);
+    if (params.building) query.set('building', params.building);
+    if (params.departmentId) query.set('departmentId', params.departmentId);
+    if (params.minCapacity) query.set('minCapacity', String(params.minCapacity));
+    if (params.active !== undefined) query.set('active', String(params.active));
+    query.set('limit', String(params.limit ?? 50));
+    query.set('offset', String(params.offset ?? 0));
+    return request<VenueList>(`/admin/venues?${query.toString()}`);
+  },
+
+  venue(id: string) {
+    return request<{ venue: Venue }>(`/venues/${id}`);
+  },
+
+  venueCalendar(id: string, from: string, to: string) {
+    const query = new URLSearchParams({ from, to });
+    return request<VenueCalendar>(`/venues/${id}/calendar?${query.toString()}`);
+  },
+
+  venueAvailability(id: string, from: string, to: string, excludeRequestId?: string) {
+    const query = new URLSearchParams({ from, to });
+    if (excludeRequestId) query.set('excludeRequestId', excludeRequestId);
+    return request<Availability>(`/venues/${id}/availability?${query.toString()}`);
+  },
+
+  createVenue(input: VenueInput) {
+    return request<{ venue: Venue }>('/admin/venues', {
+      method: 'POST',
+      body: jsonBody(input),
+    });
+  },
+
+  updateVenue(id: string, input: VenueUpdateInput) {
+    return request<{ venue: Venue }>(`/admin/venues/${id}`, {
+      method: 'PATCH',
+      body: jsonBody(input),
+    });
+  },
+
+  archiveVenue(id: string) {
+    return request<{ venue: Venue }>(`/admin/venues/${id}`, { method: 'DELETE' });
+  },
+
+  myEvents() {
+    return request<{ events: EventView[] }>('/events/mine');
+  },
+
+  event(id: string) {
+    return request<{ event: EventView }>(`/events/${id}`);
+  },
+
+  createEvent(input: EventInput) {
+    return request<{ event: EventView }>('/events', {
+      method: 'POST',
+      body: jsonBody(input),
+    });
+  },
+
+  updateEvent(id: string, input: EventUpdateInput) {
+    return request<{ event: EventView }>(`/events/${id}`, {
+      method: 'PATCH',
+      body: jsonBody(input),
+    });
+  },
+
+  cancelEvent(id: string) {
+    return request<{ event: EventView }>(`/events/${id}`, { method: 'DELETE' });
+  },
+
+  requestDetail(id: string) {
+    return request<RequestDetail>(`/venue-requests/${id}`);
+  },
+
+  createRequest(input: VenueRequestInput) {
+    return request<RequestDetail>('/venue-requests', {
+      method: 'POST',
+      body: jsonBody(input),
+    });
+  },
+
+  updateRequest(id: string, input: VenueRequestUpdateInput) {
+    return request<RequestDetail>(`/venue-requests/${id}`, {
+      method: 'PATCH',
+      body: jsonBody(input),
+    });
+  },
+
+  cancelRequest(id: string) {
+    return request<RequestDetail>(`/venue-requests/${id}`, { method: 'DELETE' });
   },
 
   adminStats() {

@@ -4,9 +4,12 @@ import { useQuery } from '@tanstack/react-query';
 import { ROLE_LABELS, type RoleName } from '@venue/shared';
 import {
   ArrowSquareOut,
+  CalendarBlank,
+  CalendarCheck,
   House,
   ShieldCheck,
   SignOut,
+  Storefront,
   UserCircle,
   UsersThree,
 } from '@phosphor-icons/react';
@@ -84,6 +87,14 @@ export function AppShell() {
               <House size={19} />
               <span>Home</span>
             </NavLink>
+            <NavLink to="/venues" className={navClass}>
+              <CalendarBlank size={19} />
+              <span>Browse venues</span>
+            </NavLink>
+            <NavLink to="/my-events" className={navClass}>
+              <CalendarCheck size={19} />
+              <span>My events</span>
+            </NavLink>
             <NavLink to="/account" className={navClass}>
               <UserCircle size={19} />
               <span>My account</span>
@@ -104,6 +115,10 @@ export function AppShell() {
                       {pendingCount > 99 ? '99+' : pendingCount}
                     </span>
                   )}
+                </NavLink>
+                <NavLink to="/admin/venues" className={navClass}>
+                  <Storefront size={19} />
+                  <span>Venue catalogue</span>
                 </NavLink>
               </>
             )}
@@ -152,7 +167,11 @@ export function AppShell() {
             <House size={21} />
             <span>Home</span>
           </NavLink>
-          {isAdmin && (
+          <NavLink to="/venues" className={navClass}>
+            <CalendarBlank size={21} />
+            <span>Venues</span>
+          </NavLink>
+          {isAdmin ? (
             <>
               <NavLink to="/admin" end className={navClass}>
                 <ShieldCheck size={21} />
@@ -164,6 +183,11 @@ export function AppShell() {
                 {pendingCount > 0 && <span className="mobile-nav-count" aria-hidden="true" />}
               </NavLink>
             </>
+          ) : (
+            <NavLink to="/my-events" className={navClass}>
+              <CalendarCheck size={21} />
+              <span>Bookings</span>
+            </NavLink>
           )}
           <NavLink to="/account" className={navClass}>
             <UserCircle size={21} />

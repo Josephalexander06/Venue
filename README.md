@@ -2,12 +2,8 @@
 
 College venue booking and approval management. This repository currently contains
 **Phase 1: core foundation, database, authentication and administrator account
-approval**. Venue catalog, calendars, booking workflows and allotments are modelled
-in the schema but their application surfaces begin in Phase 2.
-
-See [`docs/PHASE_1.md`](docs/PHASE_1.md) for delivered scope, decisions and
-verification evidence. The full product blueprint is in
-[`docs/SYSTEM_IMPLEMENTATION_PLAN.md`](docs/SYSTEM_IMPLEMENTATION_PLAN.md).
+approval** and **Phase 2: venue catalogue, availability calendar and event/booking
+requests**. The approval workflow engine and notifications arrive in Phase 3.
 
 ## Stack
 
@@ -59,15 +55,19 @@ pnpm dev             # shared build + API and web dev servers
 pnpm build           # production build for shared, API and web
 pnpm typecheck       # type-check every workspace
 pnpm test            # API integration and schema-integrity tests
+pnpm test:e2e        # Playwright registration, approval and booking workflows
 pnpm lint            # ESLint
 pnpm db:generate     # generate a Drizzle migration
 pnpm db:migrate      # apply migrations to DATABASE_URL
-pnpm db:seed         # seed departments, roles and the administrator
+pnpm db:seed         # seed departments, roles, workflow, venues and admin
 ```
 
 Tests use `TEST_DATABASE_URL` and apply migrations automatically. They reset
 application data between cases; do not point `TEST_DATABASE_URL` at a database
-you need to keep.
+you need to keep. Browser tests start the dev servers against the local database,
+register a unique account, approve it through the admin UI and submit a booking.
+They expect the seeded administrator (`E2E_ADMIN_EMAIL` / `E2E_ADMIN_PASSWORD`
+override the defaults).
 
 ## Repository layout
 
@@ -75,7 +75,7 @@ you need to keep.
 apps/api/             Fastify API, Drizzle schema/migrations, integration tests
 apps/web/             React application and design system
 packages/shared/      Shared Zod schemas, roles, statuses and API types
-docs/                 Product blueprint and Phase 1 record
+docs/                 Product blueprint and phase records
 infra/                PostgreSQL database bootstrap
 docker-compose.yml    Local PostgreSQL 16 service
 ```
@@ -89,12 +89,17 @@ docker-compose.yml    Local PostgreSQL 16 service
   allowed `Origin`.
 - Login, registration and global routes are rate limited.
 - Admin routes require the `ADMINISTRATOR` role.
-- Approval, rejection and role changes run in transactions with row locks and
-  write append-only audit records.
+- Venue details and request history are owner-or-administrator only; students
+  and faculty create events only for their own department.
+- Confirmed allotments use a PostgreSQL exclusion constraint. Booking checks add
+  setup/cleanup buffers before allowing a request, while overlapping pending
+  requests remain allowed.
+- Approval, rejection, venue changes, booking submissions and cancellations run
+  in transactions with row locks and append-only audit records.
 - For HTTPS deployments set `COOKIE_SECURE=true` and configure
   `FRONTEND_URL`/`COOKIE_SAME_SITE` for the real origin.
 
 ## Status
 
-Phase 1 is complete. Phase 2 (venue catalog, availability calendar and event
-submission) has not started.
+Phase 1 and Phase 2 are complete. Phase 3 (approval queue, workflow decisions,
+allotments and notifications) has not started.

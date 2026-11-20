@@ -27,19 +27,22 @@ const authPlugin: FastifyPluginAsync<{ db: Database }> = async (app, { db }) => 
     request.auth = session;
   };
 
-  const requireRole = (role: RoleName) => {
+  const requireAnyRole = (allowed: readonly RoleName[]) => {
     return async (request: FastifyRequest) => {
       await authenticate(request);
       const roles = request.auth?.user.roles.map((entry) => entry.role) ?? [];
       const isAdmin = roles.includes('ADMINISTRATOR');
-      if (!isAdmin && !roles.includes(role)) {
+      if (!isAdmin && !roles.some((role) => allowed.includes(role))) {
         throw new AppError(403, 'FORBIDDEN', 'You do not have permission to do that.');
       }
     };
   };
 
+  const requireRole = (role: RoleName) => requireAnyRole([role]);
+
   app.decorate('authenticate', authenticate);
   app.decorate('requireRole', requireRole);
+  app.decorate('requireAnyRole', requireAnyRole);
 };
 
 export default fp(authPlugin, { name: 'auth', dependencies: ['@fastify/cookie'] });

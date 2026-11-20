@@ -51,13 +51,13 @@ export function HomePage() {
                 <ArrowRight size={17} aria-hidden="true" />
               </Link>
             ) : (
-              <Link to="/account" className="btn btn-accent btn-md">
-                View access profile
+              <Link to="/venues" className="btn btn-accent btn-md">
+                Browse campus venues
                 <ArrowRight size={17} aria-hidden="true" />
               </Link>
             )}
-            <Link to="/account" className="btn btn-quiet btn-md">
-              Account settings
+            <Link to={isAdmin ? '/admin' : '/my-events'} className="btn btn-quiet btn-md">
+              {isAdmin ? 'Admin overview' : 'My events'}
             </Link>
           </div>
         </div>
@@ -152,19 +152,19 @@ export function HomePage() {
                 <Link to="/admin/users" className="btn btn-secondary btn-sm">
                   Open approval queue <ArrowRight size={15} />
                 </Link>
-                <Link to="/admin" className="btn btn-ghost btn-sm">
-                  View admin overview
+                <Link to="/admin/venues" className="btn btn-ghost btn-sm">
+                  Manage venues
                 </Link>
               </div>
             </section>
           )}
 
           {!isAdmin && (
-            <section className="card" aria-labelledby="coming-heading">
+            <section className="card" aria-labelledby="venues-heading">
               <div className="card-head">
                 <div>
-                  <h2 id="coming-heading">Campus venue services</h2>
-                  <p>Venue requests will appear here as modules are enabled for your role.</p>
+                  <h2 id="venues-heading">Campus venue services</h2>
+                  <p>Find a space, check live availability and submit a booking request.</p>
                 </div>
                 <span className="card-icon">
                   <CalendarBlank size={20} />
@@ -175,11 +175,19 @@ export function HomePage() {
                   <CalendarBlank size={26} weight="duotone" />
                 </span>
                 <div>
-                  <strong>Bookings are being rolled out</strong>
+                  <strong>Your next event starts here</strong>
                   <p>
-                    Your account is ready. Once venue booking opens, your role will determine
-                    whether you create requests, endorse them, or give final approval.
+                    Browse every active venue, view confirmed and pending bookings on its
+                    calendar, and apply for the slot you need in one flow.
                   </p>
+                  <div className="inline-actions">
+                    <Link to="/venues" className="btn btn-primary btn-sm">
+                      Find a venue <ArrowRight size={15} />
+                    </Link>
+                    <Link to="/my-events" className="btn btn-ghost btn-sm">
+                      Track my requests
+                    </Link>
+                  </div>
                 </div>
               </div>
             </section>

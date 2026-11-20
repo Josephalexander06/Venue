@@ -4,6 +4,7 @@ import {
   boolean,
   check,
   customType,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -100,6 +101,8 @@ export const venues = pgTable(
     check('venues_capacity_positive', sql`${table.capacity} > 0`),
     check('venues_setup_buffer_non_negative', sql`${table.setupBufferMins} >= 0`),
     check('venues_teardown_buffer_non_negative', sql`${table.teardownBufferMins} >= 0`),
+    index('venues_active_idx').on(table.isActive),
+    index('venues_department_idx').on(table.departmentId),
   ],
 );
 
@@ -171,13 +174,21 @@ export const sessions = pgTable('sessions', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const approvalWorkflows = pgTable('approval_workflows', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: varchar('name', { length: 100 }).notNull(),
-  description: text('description'),
-  isDefault: boolean('is_default').notNull().default(false),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const approvalWorkflows = pgTable(
+  'approval_workflows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: varchar('name', { length: 100 }).notNull(),
+    description: text('description'),
+    isDefault: boolean('is_default').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('approval_workflows_one_default_idx')
+      .on(table.isDefault)
+      .where(sql`${table.isDefault}`),
+  ],
+);
 
 export const workflowSteps = pgTable(
   'workflow_steps',
@@ -215,7 +226,11 @@ export const events = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [check('events_attendance_positive', sql`${table.expectedAttendance} > 0`)],
+  (table) => [
+    check('events_attendance_positive', sql`${table.expectedAttendance} > 0`),
+    index('events_creator_idx').on(table.creatorId, table.createdAt),
+    index('events_status_idx').on(table.status),
+  ],
 );
 
 export const venueRequests = pgTable(
@@ -257,6 +272,8 @@ export const venueRequests = pgTable(
     check('venue_requests_end_after_start', sql`${table.endTime} > ${table.startTime}`),
     check('venue_requests_setup_buffer_non_negative', sql`${table.setupBufferMins} >= 0`),
     check('venue_requests_teardown_buffer_non_negative', sql`${table.teardownBufferMins} >= 0`),
+    index('venue_requests_event_idx').on(table.eventId),
+    index('venue_requests_venue_status_idx').on(table.venueId, table.status),
   ],
 );
 
