@@ -1,10 +1,18 @@
-import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
+import type {
+  ApprovalDecision,
+  RequestStatus,
+  RoleName,
+  WorkflowScopeType,
+} from '@venue/shared';
 import type { Database, DbExecutor } from '../../db/index.js';
 import {
+  approvalDecisions,
   approvalInstances,
   approvalWorkflows,
   departments,
   events,
+  users,
   venueAllotments,
   venueRequests,
   venues,
@@ -13,6 +21,12 @@ import {
 import { writeAudit } from '../../lib/audit.js';
 import { assertBookingInterval, bufferedRange, parseInstant } from '../../lib/booking.js';
 import { AppError } from '../../lib/errors.js';
+import {
+  eligibleForStep,
+  isWorkflowParticipant,
+  loadViewerRoles,
+} from '../approvals/eligibility.js';
+import { loadWorkflowSteps, resolveWorkflowId } from '../workflows/service.js';
 import {
   mapRequestRow,
   requestSelection,
@@ -43,6 +57,7 @@ interface RequestDetailRow extends RequestRow {
   departmentId: string;
   departmentCode: string;
   departmentName: string;
+  venueDepartmentId: string | null;
 }
 
 const requestDetailSelection = {
@@ -57,6 +72,7 @@ const requestDetailSelection = {
   departmentId: departments.id,
   departmentCode: departments.code,
   departmentName: departments.name,
+  venueDepartmentId: venues.departmentId,
 };
 
 function eventSummary(row: RequestDetailRow): EventSummary {
@@ -91,10 +107,318 @@ function assertRequestAccess(row: RequestDetailRow, viewer: Viewer) {
   }
 }
 
-export async function getRequestView(db: Database, requestId: string, viewer: Viewer) {
+export interface RequestConflictView {
+  requestId: string;
+  eventId: string;
+  title: string;
+  status: RequestStatus;
+  startTime: string;
+  endTime: string;
+  rangeStart: string;
+  rangeEnd: string;
+}
+
+export interface ApprovalDecisionView {
+  id: string;
+  instanceId: string;
+  round: number;
+  stepOrder: number;
+  stepName: string;
+  decision: ApprovalDecision;
+  remarks: string | null;
+  approver: { id: string; firstName: string; lastName: string; email: string };
+  decidedAt: string;
+  isCurrentRound: boolean;
+}
+
+export interface ApprovalTimelineStep {
+  id: string;
+  stepOrder: number;
+  stepName: string;
+  requiredRole: RoleName;
+  scopeType: WorkflowScopeType;
+  isFinalAllotmentStep: boolean;
+  state: ApprovalDecision | 'CURRENT' | 'PENDING';
+  decision: ApprovalDecisionView | null;
+}
+
+export interface RequestDetailView {
+  request: ReturnType<typeof mapRequestRow>;
+  event: EventSummary;
+  workflow: {
+    id: string;
+    name: string;
+    description: string | null;
+    steps: Omit<ApprovalTimelineStep, 'state' | 'decision'>[];
+  };
+  timeline: ApprovalTimelineStep[];
+  decisions: ApprovalDecisionView[];
+  conflicts: { confirmed: RequestConflictView[]; pending: RequestConflictView[] };
+  currentRound: number | null;
+  permissions: { canDecide: boolean; canEdit: boolean; canCancel: boolean };
+}
+
+interface ConflictQuery {
+  venueId: string;
+  startTime: Date;
+  endTime: Date;
+  setupBufferMins: number;
+  teardownBufferMins: number;
+  excludeRequestId: string;
+}
+
+export async function findRequestConflicts(
+  db: DbExecutor,
+  query: ConflictQuery,
+): Promise<RequestDetailView['conflicts']> {
+  const rangeStart = new Date(query.startTime.getTime() - query.setupBufferMins * 60_000);
+  const rangeEnd = new Date(query.endTime.getTime() + query.teardownBufferMins * 60_000);
+
+  const confirmedRows = await db
+    .select({
+      requestId: venueRequests.id,
+      eventId: events.id,
+      title: events.title,
+      status: venueRequests.status,
+      startTime: venueRequests.startTime,
+      endTime: venueRequests.endTime,
+      setupBufferMins: venueRequests.setupBufferMins,
+      teardownBufferMins: venueRequests.teardownBufferMins,
+    })
+    .from(venueAllotments)
+    .innerJoin(venueRequests, eq(venueRequests.id, venueAllotments.venueRequestId))
+    .innerJoin(events, eq(events.id, venueRequests.eventId))
+    .where(
+      and(
+        eq(venueAllotments.venueId, query.venueId),
+        eq(venueAllotments.status, 'ACTIVE'),
+        ne(venueAllotments.venueRequestId, query.excludeRequestId),
+        sql`${venueAllotments.reservedRange} && tstzrange(${rangeStart}, ${rangeEnd}, '[)')`,
+      ),
+    )
+    .orderBy(asc(venueRequests.startTime));
+
+  const pendingRows = await db
+    .select({
+      requestId: venueRequests.id,
+      eventId: events.id,
+      title: events.title,
+      status: venueRequests.status,
+      startTime: venueRequests.startTime,
+      endTime: venueRequests.endTime,
+      setupBufferMins: venueRequests.setupBufferMins,
+      teardownBufferMins: venueRequests.teardownBufferMins,
+    })
+    .from(venueRequests)
+    .innerJoin(events, eq(events.id, venueRequests.eventId))
+    .where(
+      and(
+        eq(venueRequests.venueId, query.venueId),
+        ne(venueRequests.id, query.excludeRequestId),
+        inArray(venueRequests.status, ['SUBMITTED', 'IN_REVIEW', 'APPROVED_PENDING_ALLOTMENT']),
+        sql`${venueRequests.effectiveRange} && tstzrange(${rangeStart}, ${rangeEnd}, '[)')`,
+      ),
+    )
+    .orderBy(asc(venueRequests.startTime));
+
+  const mapConflict = (
+    row: (typeof confirmedRows)[number] | (typeof pendingRows)[number],
+  ): RequestConflictView => ({
+    requestId: row.requestId,
+    eventId: row.eventId,
+    title: row.title,
+    status: row.status,
+    startTime: row.startTime.toISOString(),
+    endTime: row.endTime.toISOString(),
+    rangeStart: new Date(
+      row.startTime.getTime() - row.setupBufferMins * 60_000,
+    ).toISOString(),
+    rangeEnd: new Date(
+      row.endTime.getTime() + row.teardownBufferMins * 60_000,
+    ).toISOString(),
+  });
+
+  return {
+    confirmed: confirmedRows.map(mapConflict),
+    pending: pendingRows.map(mapConflict),
+  };
+}
+
+export async function getRequestView(
+  db: Database,
+  requestId: string,
+  viewer: Viewer,
+): Promise<RequestDetailView> {
   const row = await loadRequestDetail(db, requestId);
-  assertRequestAccess(row, viewer);
-  return { request: mapRequestRow(row), event: eventSummary(row) };
+  const [workflow] = await db
+    .select()
+    .from(approvalWorkflows)
+    .where(eq(approvalWorkflows.id, row.workflowId))
+    .limit(1);
+  const steps = await db
+    .select()
+    .from(workflowSteps)
+    .where(eq(workflowSteps.workflowId, row.workflowId))
+    .orderBy(asc(workflowSteps.stepOrder));
+  const viewerRoles = await loadViewerRoles(db, viewer.userId);
+  const participant =
+    row.creatorId === viewer.userId ||
+    viewer.isAdmin ||
+    isWorkflowParticipant(viewerRoles, steps, row.departmentId, row.venueDepartmentId);
+
+  let hasDecided = false;
+  if (!participant) {
+    const [previous] = await db
+      .select({ id: approvalDecisions.id })
+      .from(approvalDecisions)
+      .innerJoin(
+        approvalInstances,
+        eq(approvalInstances.id, approvalDecisions.approvalInstanceId),
+      )
+      .where(
+        and(
+          eq(approvalInstances.venueRequestId, requestId),
+          eq(approvalDecisions.approverId, viewer.userId),
+        ),
+      )
+      .limit(1);
+    hasDecided = Boolean(previous);
+  }
+  if (!participant && !hasDecided) {
+    throw new AppError(404, 'REQUEST_NOT_FOUND', 'Booking request not found.');
+  }
+
+  const instances = await db
+    .select()
+    .from(approvalInstances)
+    .where(eq(approvalInstances.venueRequestId, requestId))
+    .orderBy(asc(approvalInstances.createdAt));
+  const currentInstance =
+    [...instances].reverse().find((instance) => instance.isActive) ??
+    instances[instances.length - 1] ??
+    null;
+  const roundByInstance = new Map(
+    instances.map((instance, index) => [instance.id, index + 1]),
+  );
+
+  const decisionRows =
+    instances.length === 0
+      ? []
+      : await db
+          .select({
+            id: approvalDecisions.id,
+            instanceId: approvalDecisions.approvalInstanceId,
+            stepOrder: workflowSteps.stepOrder,
+            stepName: workflowSteps.stepName,
+            decision: approvalDecisions.decision,
+            remarks: approvalDecisions.remarks,
+            decidedAt: approvalDecisions.decidedAt,
+            approverId: users.id,
+            firstName: users.firstName,
+            lastName: users.lastName,
+            email: users.email,
+          })
+          .from(approvalDecisions)
+          .innerJoin(
+            approvalInstances,
+            eq(approvalInstances.id, approvalDecisions.approvalInstanceId),
+          )
+          .innerJoin(workflowSteps, eq(workflowSteps.id, approvalDecisions.workflowStepId))
+          .innerJoin(users, eq(users.id, approvalDecisions.approverId))
+          .where(
+            inArray(
+              approvalDecisions.approvalInstanceId,
+              instances.map((instance) => instance.id),
+            ),
+          )
+          .orderBy(asc(approvalDecisions.decidedAt));
+
+  const decisions: ApprovalDecisionView[] = decisionRows.map((decision) => ({
+    id: decision.id,
+    instanceId: decision.instanceId,
+    round: roundByInstance.get(decision.instanceId) ?? 1,
+    stepOrder: decision.stepOrder,
+    stepName: decision.stepName,
+    decision: decision.decision,
+    remarks: decision.remarks,
+    approver: {
+      id: decision.approverId,
+      firstName: decision.firstName,
+      lastName: decision.lastName,
+      email: decision.email,
+    },
+    decidedAt: decision.decidedAt.toISOString(),
+    isCurrentRound: currentInstance?.id === decision.instanceId,
+  }));
+
+  const currentRoundDecisions = currentInstance
+    ? decisions.filter((decision) => decision.instanceId === currentInstance.id)
+    : [];
+  const latestByStep = new Map<number, ApprovalDecisionView>();
+  for (const decision of currentRoundDecisions) {
+    latestByStep.set(decision.stepOrder, decision);
+  }
+  const requestOpen = row.status === 'SUBMITTED' || row.status === 'IN_REVIEW';
+  const timeline: ApprovalTimelineStep[] = steps.map((step) => {
+    const decision = latestByStep.get(step.stepOrder) ?? null;
+    return {
+      id: step.id,
+      stepOrder: step.stepOrder,
+      stepName: step.stepName,
+      requiredRole: step.requiredRole,
+      scopeType: step.scopeType,
+      isFinalAllotmentStep: step.isFinalAllotmentStep,
+      state:
+        decision?.decision ??
+        (requestOpen && step.stepOrder === row.currentStepOrder ? 'CURRENT' : 'PENDING'),
+      decision,
+    };
+  });
+
+  const currentStep = steps.find((step) => step.stepOrder === row.currentStepOrder) ?? null;
+  const canDecide = Boolean(
+    requestOpen &&
+      currentInstance?.isActive &&
+      currentStep &&
+      row.creatorId !== viewer.userId &&
+      eligibleForStep(viewerRoles, currentStep, row.departmentId, row.venueDepartmentId),
+  );
+  const closed = ['REJECTED', 'CANCELLED', 'SUPERSEDED_CONFLICT'].includes(row.status);
+  const ownerOrAdmin = viewer.isAdmin || row.creatorId === viewer.userId;
+
+  return {
+    request: mapRequestRow(row),
+    event: eventSummary(row),
+    workflow: {
+      id: row.workflowId,
+      name: workflow?.name ?? 'Approval workflow',
+      description: workflow?.description ?? null,
+      steps: steps.map((step) => ({
+        id: step.id,
+        stepOrder: step.stepOrder,
+        stepName: step.stepName,
+        requiredRole: step.requiredRole,
+        scopeType: step.scopeType,
+        isFinalAllotmentStep: step.isFinalAllotmentStep,
+      })),
+    },
+    timeline,
+    decisions,
+    conflicts: await findRequestConflicts(db, {
+      venueId: row.venueId,
+      startTime: row.startTime,
+      endTime: row.endTime,
+      setupBufferMins: row.setupBufferMins,
+      teardownBufferMins: row.teardownBufferMins,
+      excludeRequestId: row.id,
+    }),
+    currentRound: currentInstance ? (roundByInstance.get(currentInstance.id) ?? 1) : null,
+    permissions: {
+      canDecide,
+      canEdit: ownerOrAdmin && !closed,
+      canCancel: ownerOrAdmin && !closed,
+    },
+  };
 }
 
 async function loadVenueForBooking(db: DbExecutor, venueId: string) {
@@ -106,6 +430,7 @@ async function loadVenueForBooking(db: DbExecutor, venueId: string) {
       isActive: venues.isActive,
       setupBufferMins: venues.setupBufferMins,
       teardownBufferMins: venues.teardownBufferMins,
+      workflowId: venues.workflowId,
     })
     .from(venues)
     .where(eq(venues.id, venueId))
@@ -139,25 +464,10 @@ async function findConfirmedConflict(
   return conflict ?? null;
 }
 
-async function loadWorkflow(db: DbExecutor) {
-  const [workflow] = await db
-    .select({ id: approvalWorkflows.id })
-    .from(approvalWorkflows)
-    .where(eq(approvalWorkflows.isDefault, true))
-    .limit(1);
-  if (!workflow) {
-    throw new AppError(500, 'WORKFLOW_NOT_CONFIGURED', 'No default approval workflow is configured.');
-  }
-  const [step] = await db
-    .select({ stepOrder: workflowSteps.stepOrder })
-    .from(workflowSteps)
-    .where(eq(workflowSteps.workflowId, workflow.id))
-    .orderBy(workflowSteps.stepOrder)
-    .limit(1);
-  if (!step) {
-    throw new AppError(500, 'WORKFLOW_NOT_CONFIGURED', 'The default approval workflow has no steps.');
-  }
-  return { workflowId: workflow.id, firstStepOrder: step.stepOrder };
+async function loadWorkflow(db: DbExecutor, workflowId: string | null) {
+  const resolvedId = await resolveWorkflowId(db, workflowId);
+  const steps = await loadWorkflowSteps(db, resolvedId);
+  return { workflowId: resolvedId, firstStepOrder: steps[0]!.stepOrder };
 }
 
 export async function createVenueRequest(
@@ -208,7 +518,7 @@ export async function createVenueRequest(
       );
     }
 
-    const workflow = await loadWorkflow(tx);
+    const workflow = await loadWorkflow(tx, venue.workflowId);
     const [created] = await tx
       .insert(venueRequests)
       .values({
@@ -348,13 +658,8 @@ export async function updateVenueRequest(
 
     const now = new Date();
     if (critical) {
-      const [step] = await tx
-        .select({ stepOrder: workflowSteps.stepOrder })
-        .from(workflowSteps)
-        .where(eq(workflowSteps.workflowId, row.workflowId ?? ''))
-        .orderBy(workflowSteps.stepOrder)
-        .limit(1);
-      const firstStepOrder = step?.stepOrder ?? 1;
+      const targetWorkflow = await loadWorkflow(tx, venue.workflowId);
+      const firstStepOrder = targetWorkflow.firstStepOrder;
 
       await tx
         .update(approvalInstances)
@@ -367,13 +672,14 @@ export async function updateVenueRequest(
         );
       await tx.insert(approvalInstances).values({
         venueRequestId: requestId,
-        workflowId: row.workflowId,
+        workflowId: targetWorkflow.workflowId,
         currentStepOrder: firstStepOrder,
       });
       await tx
         .update(venueRequests)
         .set({
           venueId: nextVenueId,
+          workflowId: targetWorkflow.workflowId,
           startTime: nextStart,
           endTime: nextEnd,
           setupBufferMins: venue.setupBufferMins,

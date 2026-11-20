@@ -11,10 +11,12 @@ import csrfPlugin from './plugins/csrf.js';
 import authPlugin from './plugins/auth.js';
 import authRoutes from './modules/auth/routes.js';
 import adminRoutes from './modules/admin/routes.js';
+import approvalRoutes from './modules/approvals/routes.js';
 import departmentRoutes from './modules/departments/routes.js';
 import eventRoutes from './modules/events/routes.js';
 import requestRoutes from './modules/requests/routes.js';
 import venueRoutes from './modules/venues/routes.js';
+import workflowRoutes from './modules/workflows/routes.js';
 import { AppError, fieldErrorsFromZod } from './lib/errors.js';
 import { findPostgresError } from './lib/postgres-error.js';
 
@@ -111,6 +113,8 @@ export async function buildApp({ db, env, logger = true }: BuildAppOptions): Pro
   await app.register(venueRoutes, { db, prefix: '/api/v1' });
   await app.register(eventRoutes, { db, prefix: '/api/v1' });
   await app.register(requestRoutes, { db, prefix: '/api/v1' });
+  await app.register(approvalRoutes, { db, prefix: '/api/v1/approvals' });
+  await app.register(workflowRoutes, { db, prefix: '/api/v1' });
 
   return app;
 }

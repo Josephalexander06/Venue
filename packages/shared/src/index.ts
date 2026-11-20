@@ -117,6 +117,7 @@ export const venueInputSchema = z.object({
   teardownBufferMins: z.coerce.number().int().min(0).max(240).default(30),
   isActive: z.boolean().default(true),
   departmentId: z.string().uuid().nullable().optional(),
+  workflowId: z.string().uuid().optional(),
 });
 export type VenueInput = z.infer<typeof venueInputSchema>;
 
@@ -132,6 +133,125 @@ export const venueListQuerySchema = z.object({
   minCapacity: z.coerce.number().int().min(1).optional(),
   active: z.enum(['true', 'false']).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+/* ---------------------------------------------------- approval workflows */
+
+export const APPROVER_ROLES = ['HOD', 'BURSAR', 'PRINCIPAL', 'ADMINISTRATOR'] as const;
+export type ApproverRole = (typeof APPROVER_ROLES)[number];
+
+export const WORKFLOW_SCOPE_TYPES = [
+  'CREATOR_DEPARTMENT',
+  'VENUE_DEPARTMENT',
+  'COLLEGE_WIDE',
+] as const;
+export type WorkflowScopeType = (typeof WORKFLOW_SCOPE_TYPES)[number];
+
+export const WORKFLOW_SCOPE_LABELS: Record<WorkflowScopeType, string> = {
+  CREATOR_DEPARTMENT: "Requester's department",
+  VENUE_DEPARTMENT: "Venue's department",
+  COLLEGE_WIDE: 'College-wide',
+};
+
+export const APPROVAL_DECISIONS = ['APPROVED', 'REJECTED', 'CHANGES_REQUESTED'] as const;
+export type ApprovalDecision = (typeof APPROVAL_DECISIONS)[number];
+
+export const APPROVAL_DECISION_LABELS: Record<ApprovalDecision, string> = {
+  APPROVED: 'Approved',
+  REJECTED: 'Rejected',
+  CHANGES_REQUESTED: 'Changes requested',
+};
+
+export const workflowStepInputSchema = z.object({
+  stepName: z.string().trim().min(2, 'Name this approval step.').max(100),
+  requiredRole: z.enum(APPROVER_ROLES),
+  scopeType: z.enum(WORKFLOW_SCOPE_TYPES).default('COLLEGE_WIDE'),
+  isFinalAllotmentStep: z.boolean().default(false),
+});
+export type WorkflowStepInput = z.infer<typeof workflowStepInputSchema>;
+
+const workflowFieldsSchema = z.object({
+  name: z.string().trim().min(2, 'Name this workflow.').max(100),
+  description: z.string().trim().max(500).optional().or(z.literal('')),
+  isDefault: z.boolean().default(false),
+  steps: z
+    .array(workflowStepInputSchema)
+    .min(1, 'Add at least one approval step.')
+    .max(12, 'Use at most 12 approval steps.'),
+});
+
+function validateWorkflowSteps(
+  value: { steps: WorkflowStepInput[] },
+  context: z.RefinementCtx,
+) {
+  const finalSteps = value.steps.filter((step) => step.isFinalAllotmentStep);
+  if (finalSteps.length !== 1) {
+    context.addIssue({
+      code: 'custom',
+      path: ['steps'],
+      message: 'Mark exactly one step as the final allotment step.',
+    });
+  }
+  if (value.steps.length > 0 && !value.steps[value.steps.length - 1]!.isFinalAllotmentStep) {
+    context.addIssue({
+      code: 'custom',
+      path: ['steps'],
+      message: 'The final allotment step must be last.',
+    });
+  }
+  value.steps.forEach((step, index) => {
+    if (step.requiredRole !== 'HOD' && step.scopeType !== 'COLLEGE_WIDE') {
+      context.addIssue({
+        code: 'custom',
+        path: ['steps', index, 'scopeType'],
+        message: 'Only HOD steps can be department-scoped.',
+      });
+    }
+  });
+}
+
+export const workflowInputSchema = workflowFieldsSchema.superRefine(validateWorkflowSteps);
+export type WorkflowInput = z.infer<typeof workflowInputSchema>;
+
+export const workflowUpdateSchema = z
+  .object({
+    name: z.string().trim().min(2, 'Name this workflow.').max(100).optional(),
+    description: z.string().trim().max(500).optional().or(z.literal('')),
+    isDefault: z.boolean().optional(),
+    steps: z
+      .array(workflowStepInputSchema)
+      .min(1, 'Add at least one approval step.')
+      .max(12, 'Use at most 12 approval steps.')
+      .optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, 'Provide at least one workflow field.')
+  .superRefine((value, context) => {
+    if (value.steps) validateWorkflowSteps({ steps: value.steps }, context);
+  });
+export type WorkflowUpdateInput = z.infer<typeof workflowUpdateSchema>;
+
+export const approvalDecisionInputSchema = z
+  .object({
+    decision: z.enum(APPROVAL_DECISIONS),
+    comments: z.string().trim().max(1000).optional().or(z.literal('')),
+  })
+  .superRefine((value, context) => {
+    if (value.decision !== 'APPROVED' && (value.comments?.trim().length ?? 0) < 5) {
+      context.addIssue({
+        code: 'custom',
+        path: ['comments'],
+        message:
+          value.decision === 'REJECTED'
+            ? 'Give a rejection reason (at least 5 characters).'
+            : 'Describe the changes needed (at least 5 characters).',
+      });
+    }
+  });
+export type ApprovalDecisionInput = z.infer<typeof approvalDecisionInputSchema>;
+
+export const approvalInboxQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(25),
   offset: z.coerce.number().int().min(0).default(0),
 });
 

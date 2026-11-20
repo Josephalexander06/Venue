@@ -14,6 +14,7 @@ import {
 import type { VenueInput, VenueUpdateInput } from '@venue/shared';
 import type { Database } from '../../db/index.js';
 import {
+  approvalWorkflows,
   departments,
   events,
   venueAllotments,
@@ -21,6 +22,7 @@ import {
   venues,
 } from '../../db/schema.js';
 import { AppError } from '../../lib/errors.js';
+import { resolveWorkflowId, requireWorkflow } from '../workflows/service.js';
 
 const venueSelection = {
   id: venues.id,
@@ -38,6 +40,8 @@ const venueSelection = {
   departmentId: departments.id,
   departmentCode: departments.code,
   departmentName: departments.name,
+  workflowId: approvalWorkflows.id,
+  workflowName: approvalWorkflows.name,
 };
 
 interface VenueRow {
@@ -56,6 +60,8 @@ interface VenueRow {
   departmentId: string | null;
   departmentCode: string | null;
   departmentName: string | null;
+  workflowId: string | null;
+  workflowName: string | null;
 }
 
 export interface VenueView {
@@ -70,6 +76,7 @@ export interface VenueView {
   teardownBufferMins: number;
   isActive: boolean;
   department: { id: string; code: string; name: string } | null;
+  workflow: { id: string; name: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -89,6 +96,10 @@ function mapVenue(row: VenueRow): VenueView {
     department:
       row.departmentId && row.departmentCode && row.departmentName
         ? { id: row.departmentId, code: row.departmentCode, name: row.departmentName }
+        : null,
+    workflow:
+      row.workflowId && row.workflowName
+        ? { id: row.workflowId, name: row.workflowName }
         : null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -126,6 +137,7 @@ export async function listVenues(db: Database, filters: ListVenueFilters) {
     .select(venueSelection)
     .from(venues)
     .leftJoin(departments, eq(departments.id, venues.departmentId))
+    .leftJoin(approvalWorkflows, eq(approvalWorkflows.id, venues.workflowId))
     .where(where)
     .orderBy(asc(venues.name))
     .limit(filters.limit)
@@ -144,6 +156,7 @@ export async function getVenueView(
     .select(venueSelection)
     .from(venues)
     .leftJoin(departments, eq(departments.id, venues.departmentId))
+    .leftJoin(approvalWorkflows, eq(approvalWorkflows.id, venues.workflowId))
     .where(
       options.includeInactive
         ? eq(venues.id, venueId)
@@ -172,6 +185,7 @@ async function requireDepartment(db: Database, departmentId: string | null | und
 
 export async function createVenue(db: Database, input: VenueInput) {
   const departmentId = await requireDepartment(db, input.departmentId);
+  const workflowId = await resolveWorkflowId(db, input.workflowId);
   const [created] = await db
     .insert(venues)
     .values({
@@ -185,6 +199,7 @@ export async function createVenue(db: Database, input: VenueInput) {
       teardownBufferMins: input.teardownBufferMins,
       isActive: input.isActive,
       departmentId,
+      workflowId,
     })
     .returning({ id: venues.id });
   if (!created) throw new Error('Venue insert returned no row.');
@@ -204,6 +219,7 @@ export async function updateVenue(db: Database, venueId: string, input: VenueUpd
   if (input.teardownBufferMins !== undefined) values.teardownBufferMins = input.teardownBufferMins;
   if (input.isActive !== undefined) values.isActive = input.isActive;
   if (input.departmentId !== undefined) values.departmentId = await requireDepartment(db, input.departmentId);
+  if (input.workflowId !== undefined) values.workflowId = await requireWorkflow(db, input.workflowId);
 
   await db.update(venues).set(values).where(eq(venues.id, venueId));
   return requireVenue(db, venueId, true);

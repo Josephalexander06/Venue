@@ -80,6 +80,41 @@ export const departments = pgTable('departments', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const approvalWorkflows = pgTable(
+  'approval_workflows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: varchar('name', { length: 100 }).notNull(),
+    description: text('description'),
+    isDefault: boolean('is_default').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('approval_workflows_one_default_idx')
+      .on(table.isDefault)
+      .where(sql`${table.isDefault}`),
+  ],
+);
+
+export const workflowSteps = pgTable(
+  'workflow_steps',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workflowId: uuid('workflow_id')
+      .notNull()
+      .references(() => approvalWorkflows.id, { onDelete: 'cascade' }),
+    stepOrder: integer('step_order').notNull(),
+    stepName: varchar('step_name', { length: 100 }).notNull(),
+    requiredRole: roleNameEnum('required_role').notNull(),
+    scopeType: scopeTypeEnum('scope_type').notNull().default('COLLEGE_WIDE'),
+    isFinalAllotmentStep: boolean('is_final_allotment_step').notNull().default(false),
+  },
+  (table) => [
+    uniqueIndex('workflow_steps_order_unique').on(table.workflowId, table.stepOrder),
+    check('workflow_steps_order_positive', sql`${table.stepOrder} > 0`),
+  ],
+);
+
 export const venues = pgTable(
   'venues',
   {
@@ -94,6 +129,7 @@ export const venues = pgTable(
     teardownBufferMins: integer('teardown_buffer_mins').notNull().default(30),
     isActive: boolean('is_active').notNull().default(true),
     departmentId: uuid('department_id').references(() => departments.id),
+    workflowId: uuid('workflow_id').references(() => approvalWorkflows.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -103,6 +139,7 @@ export const venues = pgTable(
     check('venues_teardown_buffer_non_negative', sql`${table.teardownBufferMins} >= 0`),
     index('venues_active_idx').on(table.isActive),
     index('venues_department_idx').on(table.departmentId),
+    index('venues_workflow_idx').on(table.workflowId),
   ],
 );
 
@@ -174,41 +211,6 @@ export const sessions = pgTable('sessions', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const approvalWorkflows = pgTable(
-  'approval_workflows',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    name: varchar('name', { length: 100 }).notNull(),
-    description: text('description'),
-    isDefault: boolean('is_default').notNull().default(false),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex('approval_workflows_one_default_idx')
-      .on(table.isDefault)
-      .where(sql`${table.isDefault}`),
-  ],
-);
-
-export const workflowSteps = pgTable(
-  'workflow_steps',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    workflowId: uuid('workflow_id')
-      .notNull()
-      .references(() => approvalWorkflows.id, { onDelete: 'cascade' }),
-    stepOrder: integer('step_order').notNull(),
-    stepName: varchar('step_name', { length: 100 }).notNull(),
-    requiredRole: roleNameEnum('required_role').notNull(),
-    scopeType: scopeTypeEnum('scope_type').notNull().default('COLLEGE_WIDE'),
-    isFinalAllotmentStep: boolean('is_final_allotment_step').notNull().default(false),
-  },
-  (table) => [
-    uniqueIndex('workflow_steps_order_unique').on(table.workflowId, table.stepOrder),
-    check('workflow_steps_order_positive', sql`${table.stepOrder} > 0`),
-  ],
-);
-
 export const events = pgTable(
   'events',
   {
@@ -277,36 +279,55 @@ export const venueRequests = pgTable(
   ],
 );
 
-export const approvalInstances = pgTable('approval_instances', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  venueRequestId: uuid('venue_request_id')
-    .notNull()
-    .references(() => venueRequests.id, { onDelete: 'cascade' }),
-  workflowId: uuid('workflow_id')
-    .notNull()
-    .references(() => approvalWorkflows.id),
-  currentStepOrder: integer('current_step_order').notNull().default(1),
-  isActive: boolean('is_active').notNull().default(true),
-  isCompleted: boolean('is_completed').notNull().default(false),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const approvalInstances = pgTable(
+  'approval_instances',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    venueRequestId: uuid('venue_request_id')
+      .notNull()
+      .references(() => venueRequests.id, { onDelete: 'cascade' }),
+    workflowId: uuid('workflow_id')
+      .notNull()
+      .references(() => approvalWorkflows.id),
+    currentStepOrder: integer('current_step_order').notNull().default(1),
+    isActive: boolean('is_active').notNull().default(true),
+    isCompleted: boolean('is_completed').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('approval_instances_request_idx').on(table.venueRequestId, table.createdAt),
+    index('approval_instances_active_idx').on(table.venueRequestId, table.isActive),
+  ],
+);
 
-export const approvalDecisions = pgTable('approval_decisions', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  approvalInstanceId: uuid('approval_instance_id')
-    .notNull()
-    .references(() => approvalInstances.id, { onDelete: 'cascade' }),
-  workflowStepId: uuid('workflow_step_id')
-    .notNull()
-    .references(() => workflowSteps.id),
-  approverId: uuid('approver_id')
-    .notNull()
-    .references(() => users.id),
-  decision: decisionEnum('decision').notNull(),
-  remarks: text('remarks'),
-  decidedAt: timestamp('decided_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const approvalDecisions = pgTable(
+  'approval_decisions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    approvalInstanceId: uuid('approval_instance_id')
+      .notNull()
+      .references(() => approvalInstances.id, { onDelete: 'cascade' }),
+    workflowStepId: uuid('workflow_step_id')
+      .notNull()
+      .references(() => workflowSteps.id),
+    approverId: uuid('approver_id')
+      .notNull()
+      .references(() => users.id),
+    decision: decisionEnum('decision').notNull(),
+    remarks: text('remarks'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('approval_decisions_step_decision_unique').on(
+      table.approvalInstanceId,
+      table.workflowStepId,
+      table.decision,
+    ),
+    index('approval_decisions_instance_idx').on(table.approvalInstanceId, table.decidedAt),
+    index('approval_decisions_approver_idx').on(table.approverId),
+  ],
+);
 
 export const venueAllotments = pgTable(
   'venue_allotments',

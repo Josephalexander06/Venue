@@ -1,5 +1,8 @@
 import type {
   ApiErrorBody,
+  ApprovalDecision,
+  ApprovalDecisionInput,
+  ApproverRole,
   AuthSessionResponse,
   EventInput,
   EventStatus,
@@ -13,6 +16,9 @@ import type {
   VenueRequestInput,
   VenueRequestUpdateInput,
   VenueUpdateInput,
+  WorkflowInput,
+  WorkflowScopeType,
+  WorkflowUpdateInput,
 } from '@venue/shared';
 
 export interface Department {
@@ -51,6 +57,7 @@ export interface Venue {
   teardownBufferMins: number;
   isActive: boolean;
   department: { id: string; code: string; name: string } | null;
+  workflow?: { id: string; name: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -144,6 +151,81 @@ export interface EventView extends EventSummary {
 export interface RequestDetail {
   request: RequestView;
   event: EventSummary;
+}
+
+export interface WorkflowStepView {
+  id: string;
+  stepOrder: number;
+  stepName: string;
+  requiredRole: ApproverRole;
+  scopeType: WorkflowScopeType;
+  isFinalAllotmentStep: boolean;
+}
+
+export interface WorkflowView {
+  id: string;
+  name: string;
+  description: string | null;
+  isDefault: boolean;
+  steps: WorkflowStepView[];
+  venueCount: number;
+  usageCount: number;
+  stepsLocked: boolean;
+  createdAt: string;
+}
+
+export interface ApprovalDecisionView {
+  id: string;
+  instanceId: string;
+  round: number;
+  stepOrder: number;
+  stepName: string;
+  decision: ApprovalDecision;
+  remarks: string | null;
+  approver: { id: string; firstName: string; lastName: string; email: string };
+  decidedAt: string;
+  isCurrentRound: boolean;
+}
+
+export interface ApprovalTimelineStep {
+  id: string;
+  stepOrder: number;
+  stepName: string;
+  requiredRole: RoleName;
+  scopeType: WorkflowScopeType;
+  isFinalAllotmentStep: boolean;
+  state: ApprovalDecision | 'CURRENT' | 'PENDING';
+  decision: ApprovalDecisionView | null;
+}
+
+export interface RequestDetailView {
+  request: RequestView;
+  event: EventSummary;
+  workflow: {
+    id: string;
+    name: string;
+    description: string | null;
+    steps: Omit<ApprovalTimelineStep, 'state' | 'decision'>[];
+  };
+  timeline: ApprovalTimelineStep[];
+  decisions: ApprovalDecisionView[];
+  conflicts: { confirmed: Conflict[]; pending: Conflict[] };
+  currentRound: number | null;
+  permissions: { canDecide: boolean; canEdit: boolean; canCancel: boolean };
+}
+
+export interface ApprovalInboxItem {
+  request: RequestView;
+  event: EventSummary;
+  step: WorkflowStepView;
+  conflicts: { confirmedCount: number; pendingCount: number };
+}
+
+export interface ApprovalInboxList {
+  items: ApprovalInboxItem[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface RoleAssignment {
@@ -339,7 +421,50 @@ export const api = {
   },
 
   requestDetail(id: string) {
-    return request<RequestDetail>(`/venue-requests/${id}`);
+    return request<RequestDetailView>(`/venue-requests/${id}`);
+  },
+
+  approvalInbox(params: { limit?: number; offset?: number } = {}) {
+    const query = new URLSearchParams();
+    query.set('limit', String(params.limit ?? 25));
+    query.set('offset', String(params.offset ?? 0));
+    return request<ApprovalInboxList>(`/approvals/inbox?${query.toString()}`);
+  },
+
+  approvalDetail(id: string) {
+    return request<RequestDetailView>(`/approvals/${id}`);
+  },
+
+  decideApproval(id: string, input: ApprovalDecisionInput) {
+    return request<RequestDetailView & { outcome: { status: RequestStatus; finalised: boolean } }>(
+      `/approvals/${id}/decision`,
+      {
+        method: 'POST',
+        body: jsonBody(input),
+      },
+    );
+  },
+
+  workflows() {
+    return request<{ workflows: WorkflowView[] }>('/workflows');
+  },
+
+  adminWorkflows() {
+    return request<{ workflows: WorkflowView[] }>('/admin/workflows');
+  },
+
+  createWorkflow(input: WorkflowInput) {
+    return request<{ workflow: WorkflowView }>('/admin/workflows', {
+      method: 'POST',
+      body: jsonBody(input),
+    });
+  },
+
+  updateWorkflow(id: string, input: WorkflowUpdateInput) {
+    return request<{ workflow: WorkflowView }>(`/admin/workflows/${id}`, {
+      method: 'PATCH',
+      body: jsonBody(input),
+    });
   },
 
   createRequest(input: VenueRequestInput) {

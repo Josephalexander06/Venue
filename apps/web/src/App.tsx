@@ -1,6 +1,12 @@
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { useAuth, RedirectIfAuthed, RequireAdmin, RequireAuth } from './auth';
+import {
+  useAuth,
+  RedirectIfAuthed,
+  RequireAdmin,
+  RequireApprover,
+  RequireAuth,
+} from './auth';
 import { AppShell } from './components/AppShell';
 import { Spinner } from './components/ui';
 
@@ -26,6 +32,12 @@ const VenueDetailPage = lazy(() =>
 const MyEventsPage = lazy(() =>
   import('./pages/MyEventsPage').then((module) => ({ default: module.MyEventsPage })),
 );
+const ApprovalInboxPage = lazy(() =>
+  import('./pages/ApprovalInboxPage').then((module) => ({ default: module.ApprovalInboxPage })),
+);
+const ApprovalDetailPage = lazy(() =>
+  import('./pages/ApprovalDetailPage').then((module) => ({ default: module.ApprovalDetailPage })),
+);
 const AdminOverviewPage = lazy(() =>
   import('./pages/AdminOverviewPage').then((module) => ({ default: module.AdminOverviewPage })),
 );
@@ -34,6 +46,9 @@ const AdminUsersPage = lazy(() =>
 );
 const AdminVenuesPage = lazy(() =>
   import('./pages/AdminVenuesPage').then((module) => ({ default: module.AdminVenuesPage })),
+);
+const AdminWorkflowsPage = lazy(() =>
+  import('./pages/AdminWorkflowsPage').then((module) => ({ default: module.AdminWorkflowsPage })),
 );
 const ForbiddenPage = lazy(() =>
   import('./pages/ErrorPages').then((module) => ({ default: module.ForbiddenPage })),
@@ -75,10 +90,15 @@ export function App() {
             <Route path="/venues/:id" element={<VenueDetailPage />} />
             <Route path="/my-events" element={<MyEventsPage />} />
             <Route path="/account" element={<AccountPage />} />
+            <Route path="/approvals/:id" element={<ApprovalDetailPage />} />
+            <Route element={<RequireApprover />}>
+              <Route path="/approvals" element={<ApprovalInboxPage />} />
+            </Route>
             <Route element={<RequireAdmin />}>
               <Route path="/admin" element={<AdminOverviewPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/venues" element={<AdminVenuesPage />} />
+              <Route path="/admin/workflows" element={<AdminWorkflowsPage />} />
             </Route>
           </Route>
         </Route>

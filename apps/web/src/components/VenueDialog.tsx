@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Venue } from '../lib/api';
 import { api, ApiError, fieldError } from '../lib/api';
 import {
@@ -27,10 +27,16 @@ export function VenueDialog({ venue, departments, onClose }: VenueDialogProps) {
   const [floor, setFloor] = useState(String(venue?.floor ?? 1));
   const [capacity, setCapacity] = useState(String(venue?.capacity ?? 60));
   const [departmentId, setDepartmentId] = useState(venue?.department?.id ?? '');
+  const [workflowId, setWorkflowId] = useState(venue?.workflow?.id ?? '');
   const [facilities, setFacilities] = useState(venue?.facilities.join(', ') ?? '');
   const [setupBufferMins, setSetupBufferMins] = useState(String(venue?.setupBufferMins ?? 30));
   const [teardownBufferMins, setTeardownBufferMins] = useState(String(venue?.teardownBufferMins ?? 30));
   const [isActive, setIsActive] = useState(venue?.isActive ?? true);
+
+  const workflowsQuery = useQuery({
+    queryKey: ['workflows'],
+    queryFn: api.workflows,
+  });
 
   const save = useMutation({
     mutationFn: () => {
@@ -48,6 +54,7 @@ export function VenueDialog({ venue, departments, onClose }: VenueDialogProps) {
         teardownBufferMins: Number(teardownBufferMins),
         isActive,
         departmentId: departmentId || null,
+        workflowId: workflowId || undefined,
       };
       return venue ? api.updateVenue(venue.id, input) : api.createVenue(input);
     },
@@ -166,6 +173,22 @@ export function VenueDialog({ venue, departments, onClose }: VenueDialogProps) {
             ))}
           </SelectField>
         </div>
+
+        <SelectField
+          label="Approval workflow"
+          name="venue-workflow"
+          value={workflowId}
+          onChange={(event) => setWorkflowId(event.target.value)}
+          hint="Sequential approval chain required for booking requests. Defaults to the college default."
+        >
+          <option value="">Default approval workflow</option>
+          {workflowsQuery.data?.workflows.map((workflow) => (
+            <option key={workflow.id} value={workflow.id}>
+              {workflow.name} {workflow.isDefault ? '(Default)' : ''} (
+              {workflow.steps.map((step) => step.requiredRole).join(' → ')})
+            </option>
+          ))}
+        </SelectField>
 
         <TextField
           label="Facilities"

@@ -6,6 +6,8 @@ import {
   ArrowSquareOut,
   CalendarBlank,
   CalendarCheck,
+  CheckSquareOffset,
+  GitBranch,
   House,
   ShieldCheck,
   SignOut,
@@ -35,7 +37,7 @@ function navClass({ isActive }: { isActive: boolean }) {
 }
 
 export function AppShell() {
-  const { user, isAdmin, logout } = useAuth();
+  const { user, isAdmin, isApprover, logout } = useAuth();
   const navigate = useNavigate();
   const { pushToast } = useToast();
   const [signingOut, setSigningOut] = useState(false);
@@ -48,11 +50,20 @@ export function AppShell() {
     retry: false,
   });
 
+  const inbox = useQuery({
+    queryKey: ['approvals', 'inbox-count'],
+    queryFn: () => api.approvalInbox({ limit: 1 }),
+    enabled: isApprover,
+    staleTime: 15_000,
+    retry: false,
+  });
+
   if (!user) return null;
 
   const roleNames = user.roles.map((entry) => entry.role);
   const mainRole = primaryRole(roleNames);
   const pendingCount = stats.data?.counts.PENDING_APPROVAL ?? 0;
+  const inboxCount = inbox.data?.total ?? 0;
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -95,6 +106,17 @@ export function AppShell() {
               <CalendarCheck size={19} />
               <span>My events</span>
             </NavLink>
+            {isApprover && (
+              <NavLink to="/approvals" className={navClass}>
+                <CheckSquareOffset size={19} />
+                <span>Approval inbox</span>
+                {inboxCount > 0 && (
+                  <span className="nav-count" aria-label={`${inboxCount} awaiting decision`}>
+                    {inboxCount > 99 ? '99+' : inboxCount}
+                  </span>
+                )}
+              </NavLink>
+            )}
             <NavLink to="/account" className={navClass}>
               <UserCircle size={19} />
               <span>My account</span>
@@ -119,6 +141,10 @@ export function AppShell() {
                 <NavLink to="/admin/venues" className={navClass}>
                   <Storefront size={19} />
                   <span>Venue catalogue</span>
+                </NavLink>
+                <NavLink to="/admin/workflows" className={navClass}>
+                  <GitBranch size={19} />
+                  <span>Approval workflows</span>
                 </NavLink>
               </>
             )}
@@ -171,6 +197,13 @@ export function AppShell() {
             <CalendarBlank size={21} />
             <span>Venues</span>
           </NavLink>
+          {isApprover && (
+            <NavLink to="/approvals" className={navClass}>
+              <CheckSquareOffset size={21} />
+              <span>Inbox</span>
+              {inboxCount > 0 && <span className="mobile-nav-count" aria-hidden="true" />}
+            </NavLink>
+          )}
           {isAdmin ? (
             <>
               <NavLink to="/admin" end className={navClass}>

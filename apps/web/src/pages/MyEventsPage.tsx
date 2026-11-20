@@ -29,6 +29,7 @@ import {
   useToast,
 } from '../components/ui';
 import { EventStatusBadge, RequestStatusBadge } from '../components/booking';
+import { RequestStatusDialog } from '../components/RequestStatusDialog';
 
 type Filter = 'all' | 'open' | 'confirmed' | 'closed';
 
@@ -94,6 +95,7 @@ export function MyEventsPage() {
   const [filter, setFilter] = useState<Filter>('all');
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
+  const [statusRequestId, setStatusRequestId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
 
@@ -242,6 +244,7 @@ export function MyEventsPage() {
               event={event}
               highlight={highlight}
               onEdit={() => openEdit(event)}
+              onTrackStatus={(req) => setStatusRequestId(req.id)}
               onCancelEvent={() =>
                 setCancelTarget({ type: 'event', id: event.id, label: event.title })
               }
@@ -358,6 +361,13 @@ export function MyEventsPage() {
           </Alert>
         )}
       </Dialog>
+
+      {statusRequestId && (
+        <RequestStatusDialog
+          requestId={statusRequestId}
+          onClose={() => setStatusRequestId(null)}
+        />
+      )}
     </>
   );
 }
@@ -366,12 +376,14 @@ function EventCard({
   event,
   highlight,
   onEdit,
+  onTrackStatus,
   onCancelEvent,
   onCancelRequest,
 }: {
   event: EventView;
   highlight: string | null;
   onEdit: () => void;
+  onTrackStatus: (request: RequestView) => void;
   onCancelEvent: () => void;
   onCancelRequest: (request: RequestView) => void;
 }) {
@@ -445,6 +457,13 @@ function EventCard({
                 {requestGuidance(request) && <span>{requestGuidance(request)}</span>}
               </span>
               <span className="booking-row-actions">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onTrackStatus(request)}
+                >
+                  Track progress
+                </Button>
                 <Link to={`/venues/${request.venue.id}`} className="btn btn-ghost btn-sm">
                   View calendar
                 </Link>

@@ -7,7 +7,12 @@ import {
   type ReactNode,
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AuthSessionResponse, SessionUser } from '@venue/shared';
+import {
+  APPROVER_ROLES,
+  type AuthSessionResponse,
+  type RoleName,
+  type SessionUser,
+} from '@venue/shared';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { api, ApiError } from './lib/api';
 import { FullPageLoader } from './components/ui';
@@ -18,6 +23,8 @@ interface AuthContextValue {
   user: SessionUser | null;
   isLoading: boolean;
   isAdmin: boolean;
+  isApprover: boolean;
+  hasRole: (role: RoleName) => boolean;
   setSession: (session: AuthSessionResponse | null) => void;
   logout: () => Promise<void>;
 }
@@ -54,13 +61,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const user = session.data?.user ?? null;
   const value = useMemo<AuthContextValue>(
-    () => ({
-      user,
-      isLoading: session.isPending,
-      isAdmin: user?.roles.some((entry) => entry.role === 'ADMINISTRATOR') ?? false,
-      setSession,
-      logout,
-    }),
+    () => {
+      const userRoles = new Set(user?.roles.map((entry) => entry.role) ?? []);
+      return {
+        user,
+        isLoading: session.isPending,
+        isAdmin: userRoles.has('ADMINISTRATOR'),
+        isApprover: APPROVER_ROLES.some((role) => userRoles.has(role)),
+        hasRole: (role: RoleName) => userRoles.has(role),
+        setSession,
+        logout,
+      };
+    },
     [user, session.isPending, setSession, logout],
   );
 
@@ -87,6 +99,13 @@ export function RequireAdmin() {
   const { isAdmin, isLoading } = useAuth();
   if (isLoading) return <FullPageLoader label="Checking permissions" />;
   if (!isAdmin) return <Navigate to="/forbidden" replace />;
+  return <Outlet />;
+}
+
+export function RequireApprover() {
+  const { isApprover, isLoading } = useAuth();
+  if (isLoading) return <FullPageLoader label="Checking permissions" />;
+  if (!isApprover) return <Navigate to="/forbidden" replace />;
   return <Outlet />;
 }
 
