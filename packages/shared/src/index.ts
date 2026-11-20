@@ -274,6 +274,31 @@ export const eventUpdateSchema = eventInputSchema
   .refine((value) => Object.keys(value).length > 0, 'Provide at least one event field.');
 export type EventUpdateInput = z.infer<typeof eventUpdateSchema>;
 
+export const ALLOTMENT_STATUSES = ['ACTIVE', 'CANCELLED', 'RELEASED'] as const;
+export type AllotmentStatus = (typeof ALLOTMENT_STATUSES)[number];
+
+export const ALLOTMENT_POLICIES = ['AUTO_REJECT_CONFLICTS'] as const;
+export type AllotmentPolicy = (typeof ALLOTMENT_POLICIES)[number];
+
+export const allotmentConfirmSchema = z.object({
+  venueRequestId: z.string().uuid(),
+  remarks: z.string().trim().max(1000).optional().or(z.literal('')),
+  conflictResolutionPolicy: z.enum(ALLOTMENT_POLICIES).default('AUTO_REJECT_CONFLICTS'),
+});
+export type AllotmentConfirmInput = z.infer<typeof allotmentConfirmSchema>;
+
+export const allotmentCancelSchema = z.object({
+  reason: z.string().trim().min(3, 'Provide a cancellation reason (at least 3 characters).').max(1000),
+});
+export type AllotmentCancelInput = z.infer<typeof allotmentCancelSchema>;
+
+export const allotmentInboxQuerySchema = z.object({
+  venueId: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(25),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type AllotmentInboxQuery = z.infer<typeof allotmentInboxQuerySchema>;
+
 /* --------------------------------------------------------- venue requests */
 
 const isoTimestamp = z.iso.datetime({ offset: true, message: 'Use an ISO timestamp with a timezone.' });

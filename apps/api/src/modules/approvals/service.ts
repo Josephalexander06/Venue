@@ -43,7 +43,8 @@ interface RequestContext {
   userAgent?: string;
 }
 
-const OPEN_STATUSES = ['SUBMITTED', 'IN_REVIEW'] as const;
+const DECIDABLE_STATUSES = ['SUBMITTED', 'IN_REVIEW'] as const;
+const INBOX_STATUSES = ['SUBMITTED', 'IN_REVIEW', 'APPROVED_PENDING_ALLOTMENT'] as const;
 
 interface InboxRow {
   id: string;
@@ -160,7 +161,7 @@ export async function listApprovalInbox(
         eq(workflowSteps.stepOrder, approvalInstances.currentStepOrder),
       ),
     )
-    .where(inArray(venueRequests.status, [...OPEN_STATUSES]))
+    .where(inArray(venueRequests.status, [...INBOX_STATUSES]))
     .orderBy(asc(venueRequests.createdAt));
 
   const eligibleRows = rows.filter(
@@ -264,11 +265,11 @@ export async function decideRequest(
 ) {
   const outcome = await db.transaction(async (tx) => {
     const { request, event, venue } = await loadLockedRequest(tx, requestId);
-    if (!OPEN_STATUSES.includes(request.status as (typeof OPEN_STATUSES)[number])) {
+    if (!DECIDABLE_STATUSES.includes(request.status as (typeof DECIDABLE_STATUSES)[number])) {
       throw new AppError(
         409,
         'REQUEST_NOT_IN_REVIEW',
-        'This request is no longer waiting for a decision.',
+        'This request is no longer waiting for a preliminary decision.',
       );
     }
 

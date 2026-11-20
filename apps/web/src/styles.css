@@ -6451,3 +6451,345 @@ body:has(dialog[open]) {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------------------------------------------------------------- Phase 4 Allotment Engine */
+
+.allotment-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.allotment-summary-card {
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.allotment-summary-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.allotment-venue-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+
+.allotment-event-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ink-1);
+}
+
+.allotment-dept-meta {
+  margin: 2px 0 0;
+  font-size: 0.84rem;
+  color: var(--ink-3);
+}
+
+.allotment-seal-icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.allotment-time-pill {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  font-size: 0.84rem;
+  color: var(--ink-2);
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.buffer-note {
+  font-size: 0.76rem;
+  color: var(--ink-3);
+}
+
+.allotment-conflict-notice,
+.allotment-cancel-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  font-size: 0.84rem;
+  color: var(--ink-1);
+}
+
+.allotment-cancel-warning {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.allotment-conflict-notice strong,
+.allotment-cancel-warning strong {
+  display: block;
+  margin-bottom: 3px;
+  font-weight: 600;
+}
+
+.allotment-conflict-notice p,
+.allotment-cancel-warning p {
+  margin: 0;
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+
+.allotment-clear-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  font-size: 0.84rem;
+  color: var(--ink-1);
+}
+
+.allotment-override-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  font-size: 0.84rem;
+}
+
+.allotment-override-notice strong {
+  display: block;
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.allotment-override-notice p {
+  margin: 2px 0 0;
+  color: var(--ink-2);
+}
+
+/* Allotment Banners on Detail Page */
+
+.allotment-confirmed-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 18px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+}
+
+.confirmed-banner-header,
+.superseded-banner-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+  min-width: 260px;
+}
+
+.confirmed-banner-header h4,
+.superseded-banner-header h4 {
+  margin: 0 0 3px;
+  font-size: 0.96rem;
+  font-weight: 700;
+  color: var(--ink-1);
+}
+
+.confirmed-banner-header p,
+.superseded-banner-header p {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+
+.allotment-superseded-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 18px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+}
+
+.approval-allotment-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(168, 85, 247, 0.08));
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+}
+
+.approval-allotment-banner h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--ink-1);
+}
+
+.approval-allotment-banner p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+
+/* Competitor Comparison Panel */
+
+.competitor-comparison-panel {
+  margin-bottom: 16px;
+}
+
+.competitor-badge-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.competitor-badge-title h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink-1);
+}
+
+.competitor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.competitor-card {
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.competitor-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.competitor-title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--ink-1);
+}
+
+.competitor-dept {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: var(--ink-3);
+}
+
+.competitor-details {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.82rem;
+  color: var(--ink-2);
+}
+
+.competitor-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.competitor-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+/* Inbox Tabs */
+
+.inbox-tabs-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+
+.inbox-tab {
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.inbox-tab:hover {
+  color: var(--ink-1);
+  background: var(--surface-2);
+}
+
+.inbox-tab.is-active {
+  color: var(--ink-1);
+  background: var(--surface);
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+.inbox-stat-pill.is-success {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border-color: rgba(16, 185, 129, 0.25);
+}

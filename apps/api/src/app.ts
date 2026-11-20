@@ -17,6 +17,7 @@ import eventRoutes from './modules/events/routes.js';
 import requestRoutes from './modules/requests/routes.js';
 import venueRoutes from './modules/venues/routes.js';
 import workflowRoutes from './modules/workflows/routes.js';
+import allotmentRoutes from './modules/allotments/routes.js';
 import { AppError, fieldErrorsFromZod } from './lib/errors.js';
 import { findPostgresError } from './lib/postgres-error.js';
 
@@ -96,6 +97,13 @@ export async function buildApp({ db, env, logger = true }: BuildAppOptions): Pro
         message: 'The venue was allotted to another event during this review.',
       } satisfies ApiErrorBody);
     }
+    if (pgError?.code === '40P01') {
+      return reply.status(409).send({
+        statusCode: 409,
+        code: 'CONCURRENCY_CONFLICT',
+        message: 'Another concurrent operation was in progress. Please retry.',
+      } satisfies ApiErrorBody);
+    }
 
     const statusCode = error.statusCode && error.statusCode < 500 ? error.statusCode : 500;
     if (statusCode === 500) {
@@ -125,6 +133,7 @@ export async function buildApp({ db, env, logger = true }: BuildAppOptions): Pro
   await app.register(eventRoutes, { db, prefix: '/api/v1' });
   await app.register(requestRoutes, { db, prefix: '/api/v1' });
   await app.register(approvalRoutes, { db, prefix: '/api/v1/approvals' });
+  await app.register(allotmentRoutes, { db, prefix: '/api/v1/allotments' });
   await app.register(workflowRoutes, { db, prefix: '/api/v1' });
 
   return app;

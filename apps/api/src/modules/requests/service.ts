@@ -116,6 +116,19 @@ export interface RequestConflictView {
   endTime: string;
   rangeStart: string;
   rangeEnd: string;
+  departmentCode?: string;
+  departmentName?: string;
+  expectedAttendance?: number;
+}
+
+export interface AllotmentView {
+  id: string;
+  status: 'ACTIVE' | 'CANCELLED' | 'RELEASED';
+  reservedRange: string;
+  allottedBy: { id: string; firstName: string; lastName: string; email: string };
+  createdAt: string;
+  cancelledAt: string | null;
+  cancellationReason: string | null;
 }
 
 export interface ApprovalDecisionView {
@@ -155,7 +168,14 @@ export interface RequestDetailView {
   decisions: ApprovalDecisionView[];
   conflicts: { confirmed: RequestConflictView[]; pending: RequestConflictView[] };
   currentRound: number | null;
-  permissions: { canDecide: boolean; canEdit: boolean; canCancel: boolean };
+  allotment?: AllotmentView | null;
+  permissions: {
+    canDecide: boolean;
+    canEdit: boolean;
+    canCancel: boolean;
+    canAllot: boolean;
+    canCancelAllotment: boolean;
+  };
 }
 
 interface ConflictQuery {
@@ -184,10 +204,14 @@ export async function findRequestConflicts(
       endTime: venueRequests.endTime,
       setupBufferMins: venueRequests.setupBufferMins,
       teardownBufferMins: venueRequests.teardownBufferMins,
+      expectedAttendance: events.expectedAttendance,
+      departmentCode: departments.code,
+      departmentName: departments.name,
     })
     .from(venueAllotments)
     .innerJoin(venueRequests, eq(venueRequests.id, venueAllotments.venueRequestId))
     .innerJoin(events, eq(events.id, venueRequests.eventId))
+    .innerJoin(departments, eq(departments.id, events.departmentId))
     .where(
       and(
         eq(venueAllotments.venueId, query.venueId),
@@ -208,9 +232,13 @@ export async function findRequestConflicts(
       endTime: venueRequests.endTime,
       setupBufferMins: venueRequests.setupBufferMins,
       teardownBufferMins: venueRequests.teardownBufferMins,
+      expectedAttendance: events.expectedAttendance,
+      departmentCode: departments.code,
+      departmentName: departments.name,
     })
     .from(venueRequests)
     .innerJoin(events, eq(events.id, venueRequests.eventId))
+    .innerJoin(departments, eq(departments.id, events.departmentId))
     .where(
       and(
         eq(venueRequests.venueId, query.venueId),
@@ -236,6 +264,9 @@ export async function findRequestConflicts(
     rangeEnd: new Date(
       row.endTime.getTime() + row.teardownBufferMins * 60_000,
     ).toISOString(),
+    departmentCode: row.departmentCode,
+    departmentName: row.departmentName,
+    expectedAttendance: row.expectedAttendance,
   });
 
   return {
@@ -386,6 +417,58 @@ export async function getRequestView(
   const closed = ['REJECTED', 'CANCELLED', 'SUPERSEDED_CONFLICT'].includes(row.status);
   const ownerOrAdmin = viewer.isAdmin || row.creatorId === viewer.userId;
 
+  const finalStep = steps.find((s) => s.isFinalAllotmentStep) ?? steps[steps.length - 1];
+  const isFinalEligible = finalStep
+    ? eligibleForStep(viewerRoles, finalStep, row.departmentId, row.venueDepartmentId)
+    : viewer.isAdmin;
+
+  const canAllot = Boolean(
+    row.status === 'APPROVED_PENDING_ALLOTMENT' &&
+      row.creatorId !== viewer.userId &&
+      (isFinalEligible || viewer.isAdmin),
+  );
+
+  const [allotmentRow] = await db
+    .select({
+      id: venueAllotments.id,
+      status: venueAllotments.status,
+      reservedRange: sql<string>`${venueAllotments.reservedRange}::text`,
+      createdAt: venueAllotments.createdAt,
+      cancelledAt: venueAllotments.cancelledAt,
+      cancellationReason: venueAllotments.cancellationReason,
+      allottedById: users.id,
+      allottedByFirstName: users.firstName,
+      allottedByLastName: users.lastName,
+      allottedByEmail: users.email,
+    })
+    .from(venueAllotments)
+    .innerJoin(users, eq(users.id, venueAllotments.allottedBy))
+    .where(eq(venueAllotments.venueRequestId, requestId))
+    .limit(1);
+
+  const allotment: AllotmentView | null = allotmentRow
+    ? {
+        id: allotmentRow.id,
+        status: allotmentRow.status,
+        reservedRange: allotmentRow.reservedRange,
+        allottedBy: {
+          id: allotmentRow.allottedById,
+          firstName: allotmentRow.allottedByFirstName,
+          lastName: allotmentRow.allottedByLastName,
+          email: allotmentRow.allottedByEmail,
+        },
+        createdAt: allotmentRow.createdAt.toISOString(),
+        cancelledAt: allotmentRow.cancelledAt?.toISOString() ?? null,
+        cancellationReason: allotmentRow.cancellationReason,
+      }
+    : null;
+
+  const canCancelAllotment = Boolean(
+    allotment &&
+      allotment.status === 'ACTIVE' &&
+      (ownerOrAdmin || (allotmentRow && allotmentRow.allottedById === viewer.userId)),
+  );
+
   return {
     request: mapRequestRow(row),
     event: eventSummary(row),
@@ -413,10 +496,13 @@ export async function getRequestView(
       excludeRequestId: row.id,
     }),
     currentRound: currentInstance ? (roundByInstance.get(currentInstance.id) ?? 1) : null,
+    allotment,
     permissions: {
       canDecide,
       canEdit: ownerOrAdmin && !closed,
       canCancel: ownerOrAdmin && !closed,
+      canAllot,
+      canCancelAllotment,
     },
   };
 }

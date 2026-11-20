@@ -106,6 +106,9 @@ export interface Conflict {
   endTime: string;
   rangeStart: string;
   rangeEnd: string;
+  departmentCode?: string;
+  departmentName?: string;
+  expectedAttendance?: number;
 }
 
 export interface Availability {
@@ -198,6 +201,61 @@ export interface ApprovalTimelineStep {
   decision: ApprovalDecisionView | null;
 }
 
+export interface AllotmentView {
+  id: string;
+  status: 'ACTIVE' | 'CANCELLED' | 'RELEASED';
+  reservedRange: string;
+  allottedBy: { id: string; firstName: string; lastName: string; email: string };
+  createdAt: string;
+  cancelledAt: string | null;
+  cancellationReason: string | null;
+}
+
+export interface AllotmentConfirmInput {
+  venueRequestId: string;
+  remarks?: string;
+  conflictResolutionPolicy?: 'AUTO_REJECT_CONFLICTS';
+}
+
+export interface AllotmentConfirmResult {
+  allotmentId: string;
+  status: 'ACTIVE';
+  venueId: string;
+  reservedRange: string;
+  supersededRequestsCount: number;
+  supersededRequestIds: string[];
+}
+
+export interface AllotmentCancelInput {
+  reason: string;
+}
+
+export interface AllotmentCancelResult {
+  success: boolean;
+  allotmentId: string;
+  status: 'CANCELLED';
+  cancelledAt: string;
+  releasedRange: string;
+  affectedSupersededCount: number;
+  affectedRequestIds: string[];
+}
+
+export interface CompetingRequestItem {
+  request: RequestView;
+  event: EventSummary;
+  organizer: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+  };
+}
+
+export interface CompetingRequestsView {
+  targetRequestId: string;
+  competingRequests: CompetingRequestItem[];
+}
+
 export interface RequestDetailView {
   request: RequestView;
   event: EventSummary;
@@ -211,7 +269,14 @@ export interface RequestDetailView {
   decisions: ApprovalDecisionView[];
   conflicts: { confirmed: Conflict[]; pending: Conflict[] };
   currentRound: number | null;
-  permissions: { canDecide: boolean; canEdit: boolean; canCancel: boolean };
+  allotment?: AllotmentView | null;
+  permissions: {
+    canDecide: boolean;
+    canEdit: boolean;
+    canCancel: boolean;
+    canAllot: boolean;
+    canCancelAllotment: boolean;
+  };
 }
 
 export interface ApprovalInboxItem {
@@ -517,6 +582,24 @@ export const api = {
       method: 'PATCH',
       body: jsonBody({ roles }),
     });
+  },
+
+  confirmAllotment(input: AllotmentConfirmInput) {
+    return request<AllotmentConfirmResult>('/allotments/confirm', {
+      method: 'POST',
+      body: jsonBody(input),
+    });
+  },
+
+  cancelAllotment(allotmentId: string, input: AllotmentCancelInput) {
+    return request<AllotmentCancelResult>(`/allotments/${allotmentId}/cancel`, {
+      method: 'POST',
+      body: jsonBody(input),
+    });
+  },
+
+  competingRequests(requestId: string) {
+    return request<CompetingRequestsView>(`/allotments/competing/${requestId}`);
   },
 };
 

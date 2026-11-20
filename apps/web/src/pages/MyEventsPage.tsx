@@ -72,6 +72,11 @@ function requestGuidance(request: RequestView) {
   if (request.status === 'REJECTED' && request.rejectionReason) {
     return `Rejected: ${request.rejectionReason}`;
   }
+  if (request.status === 'SUPERSEDED_CONFLICT') {
+    return request.rejectionReason
+      ? `Superseded: ${request.rejectionReason}`
+      : 'Slot was allotted to another competing event. Please reschedule for a different time or venue.';
+  }
   return null;
 }
 

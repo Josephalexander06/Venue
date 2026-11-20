@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
+  CalendarCheck,
   CheckCircle,
   Clock,
   MapPin,
   UsersThree,
-  WarningCircle,
 } from '@phosphor-icons/react';
 import { ROLE_LABELS, WORKFLOW_SCOPE_LABELS } from '@venue/shared';
 import { api } from '../lib/api';
@@ -21,9 +21,11 @@ import {
 } from '../components/ui';
 import { RequestStatusBadge } from '../components/booking';
 
+type InboxTab = 'all' | 'preliminary' | 'allotment' | 'conflicts';
+
 export function ApprovalInboxPage() {
   usePageTitle('Approval inbox');
-  const [filter, setFilter] = useState<'all' | 'conflicts'>('all');
+  const [filter, setFilter] = useState<InboxTab>('all');
 
   const inboxQuery = useQuery({
     queryKey: ['approvals', 'inbox'],
@@ -32,17 +34,31 @@ export function ApprovalInboxPage() {
   });
 
   const allItems = inboxQuery.data?.items ?? [];
+
+  const preliminaryCount = allItems.filter(
+    (i) => i.request.status === 'SUBMITTED' || i.request.status === 'IN_REVIEW',
+  ).length;
+
+  const allotmentCount = allItems.filter(
+    (i) => i.request.status === 'APPROVED_PENDING_ALLOTMENT',
+  ).length;
+
+  const conflictCount = allItems.filter(
+    (i) => i.conflicts.confirmedCount > 0 || i.conflicts.pendingCount > 0,
+  ).length;
+
   const filteredItems = allItems.filter((item) => {
+    if (filter === 'preliminary') {
+      return item.request.status === 'SUBMITTED' || item.request.status === 'IN_REVIEW';
+    }
+    if (filter === 'allotment') {
+      return item.request.status === 'APPROVED_PENDING_ALLOTMENT';
+    }
     if (filter === 'conflicts') {
       return item.conflicts.confirmedCount > 0 || item.conflicts.pendingCount > 0;
     }
     return true;
   });
-
-  const pendingCount = allItems.length;
-  const conflictCount = allItems.filter(
-    (i) => i.conflicts.confirmedCount > 0 || i.conflicts.pendingCount > 0,
-  ).length;
 
   return (
     <>
@@ -53,8 +69,13 @@ export function ApprovalInboxPage() {
         actions={
           <div className="inbox-stats-pills">
             <span className="inbox-stat-pill">
-              <strong>{pendingCount}</strong> pending decision
+              <strong>{allItems.length}</strong> total in queue
             </span>
+            {allotmentCount > 0 && (
+              <span className="inbox-stat-pill is-success">
+                <strong>{allotmentCount}</strong> ready for allotment
+              </span>
+            )}
             {conflictCount > 0 && (
               <span className="inbox-stat-pill is-warning">
                 <strong>{conflictCount}</strong> with overlaps
@@ -80,129 +101,147 @@ export function ApprovalInboxPage() {
         </div>
       )}
 
-      <div className="booking-filter-bar">
-        <div className="filter-tabs" role="tablist" aria-label="Inbox filter">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={filter === 'all'}
-            className={`filter-tab ${filter === 'all' ? 'is-active' : ''}`}
-            onClick={() => setFilter('all')}
-          >
-            All awaiting me ({pendingCount})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={filter === 'conflicts'}
-            className={`filter-tab ${filter === 'conflicts' ? 'is-active' : ''}`}
-            onClick={() => setFilter('conflicts')}
-          >
-            With competing slots ({conflictCount})
-          </button>
-        </div>
-        <span className="booking-filter-note">
-          <Clock size={15} /> Approval stages are sequential; requests proceed as each approver decides.
-        </span>
+      {/* Filter Tabs */}
+      <div className="inbox-tabs-row" role="tablist" aria-label="Inbox filters">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={filter === 'all'}
+          className={`inbox-tab ${filter === 'all' ? 'is-active' : ''}`}
+          onClick={() => setFilter('all')}
+        >
+          All items ({allItems.length})
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={filter === 'preliminary'}
+          className={`inbox-tab ${filter === 'preliminary' ? 'is-active' : ''}`}
+          onClick={() => setFilter('preliminary')}
+        >
+          Preliminary review ({preliminaryCount})
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={filter === 'allotment'}
+          className={`inbox-tab ${filter === 'allotment' ? 'is-active' : ''}`}
+          onClick={() => setFilter('allotment')}
+        >
+          Ready for allotment ({allotmentCount})
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={filter === 'conflicts'}
+          className={`inbox-tab ${filter === 'conflicts' ? 'is-active' : ''}`}
+          onClick={() => setFilter('conflicts')}
+        >
+          With overlaps ({conflictCount})
+        </button>
       </div>
 
       {inboxQuery.isPending ? (
-        <div className="event-list" aria-hidden="true">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="event-card">
-              <Skeleton className="skeleton-line skeleton-line-wide" />
-              <Skeleton className="skeleton-line" />
-              <Skeleton className="skeleton-block" />
-            </div>
-          ))}
+        <div className="inbox-skeleton-list" aria-busy="true">
+          <Skeleton className="skeleton-card" />
+          <Skeleton className="skeleton-card" />
+          <Skeleton className="skeleton-card" />
         </div>
       ) : filteredItems.length === 0 ? (
         <div className="card">
           <EmptyState
-            icon={<CheckCircle size={32} weight="duotone" />}
-            title={allItems.length === 0 ? 'Inbox zero!' : 'No matching requests'}
+            icon={<CheckCircle size={36} weight="duotone" />}
+            title={filter === 'all' ? 'Inbox is clear' : 'No matching requests'}
             description={
-              allItems.length === 0
-                ? 'You have reviewed all booking requests currently assigned to your role and department.'
-                : 'Try switching filters to view all pending requests.'
+              filter === 'all'
+                ? 'No venue booking requests are currently awaiting your decision. You will see requests here when organizer submissions reach your workflow step.'
+                : 'No requests match this filter tab right now.'
             }
           />
         </div>
       ) : (
         <div className="inbox-list">
-          {filteredItems.map((item) => (
-            <article key={item.request.id} className="inbox-card">
-              <div className="inbox-card-head">
-                <div className="inbox-card-title-group">
-                  <div className="inbox-card-badge-row">
-                    <span className="inbox-step-badge">
-                      Stage: {item.step.stepName} ({ROLE_LABELS[item.step.requiredRole]} · {WORKFLOW_SCOPE_LABELS[item.step.scopeType]})
-                    </span>
-                    <RequestStatusBadge status={item.request.status} />
-                    {item.step.isFinalAllotmentStep && (
-                      <span className="approval-final-badge">Final allotment stage</span>
+          {filteredItems.map((item) => {
+            const isAllotment = item.request.status === 'APPROVED_PENDING_ALLOTMENT';
+
+            return (
+              <article key={item.request.id} className="inbox-card">
+                <div className="inbox-card-head">
+                  <div className="inbox-card-title-group">
+                    <div className="inbox-card-badge-row">
+                      <span className="inbox-step-badge">
+                        Stage: {item.step.stepName} ({ROLE_LABELS[item.step.requiredRole]} · {WORKFLOW_SCOPE_LABELS[item.step.scopeType]})
+                      </span>
+                      <RequestStatusBadge status={item.request.status} />
+                      {item.step.isFinalAllotmentStep && (
+                        <span className="approval-final-badge">Final allotment stage</span>
+                      )}
+                    </div>
+                    <h3 className="inbox-card-title">
+                      <Link to={`/approvals/${item.request.id}`}>{item.event.title}</Link>
+                    </h3>
+                    {item.event.description && (
+                      <p className="inbox-card-desc">{item.event.description}</p>
                     )}
                   </div>
-                  <h3 className="inbox-card-title">
-                    <Link to={`/approvals/${item.request.id}`}>{item.event.title}</Link>
-                  </h3>
-                  {item.event.description && (
-                    <p className="inbox-card-desc">{item.event.description}</p>
-                  )}
+
+                  <Link
+                    to={`/approvals/${item.request.id}`}
+                    className={`btn ${isAllotment ? 'btn-accent' : 'btn-primary'} btn-md inbox-card-action`}
+                  >
+                    {isAllotment ? (
+                      <>
+                        <CalendarCheck size={16} /> Review & allot
+                      </>
+                    ) : (
+                      'Review & decide'
+                    )}
+                  </Link>
                 </div>
 
-                <Link
-                  to={`/approvals/${item.request.id}`}
-                  className="btn btn-primary btn-md inbox-card-action"
-                >
-                  Review & decide
-                </Link>
-              </div>
-
-              <div className="inbox-card-grid">
-                <div className="inbox-grid-cell">
-                  <span className="cell-label">Venue</span>
-                  <strong>{item.request.venue.name}</strong>
-                  <span className="cell-sub">
-                    <MapPin size={14} /> {item.request.venue.building} · Floor {item.request.venue.floor}
-                  </span>
-                </div>
-
-                <div className="inbox-grid-cell">
-                  <span className="cell-label">Requested date & time</span>
-                  <strong>{formatDate(item.request.startTime)}</strong>
-                  <span className="cell-sub">
-                    <Clock size={14} /> {formatTimeRange(item.request.startTime, item.request.endTime)}
-                  </span>
-                </div>
-
-                <div className="inbox-grid-cell">
-                  <span className="cell-label">Department & attendance</span>
-                  <strong>{item.event.department.name}</strong>
-                  <span className="cell-sub">
-                    <UsersThree size={14} /> {item.event.expectedAttendance} attendees expected
-                  </span>
-                </div>
-
-                <div className="inbox-grid-cell">
-                  <span className="cell-label">Competitor status</span>
-                  {item.conflicts.confirmedCount > 0 ? (
-                    <span className="inbox-conflict-tag is-danger">
-                      <WarningCircle size={14} weight="fill" /> {item.conflicts.confirmedCount} confirmed conflict
+                <div className="inbox-card-grid">
+                  <div className="inbox-grid-cell">
+                    <span className="cell-label">Venue</span>
+                    <strong>{item.request.venue.name}</strong>
+                    <span className="cell-sub">
+                      <MapPin size={14} /> {item.request.venue.building} · Floor {item.request.venue.floor}
                     </span>
-                  ) : item.conflicts.pendingCount > 0 ? (
-                    <span className="inbox-conflict-tag is-warning">
-                      <UsersThree size={14} /> {item.conflicts.pendingCount} competing request{item.conflicts.pendingCount > 1 ? 's' : ''}
+                  </div>
+
+                  <div className="inbox-grid-cell">
+                    <span className="cell-label">Requested date & time</span>
+                    <strong>{formatDate(item.request.startTime)}</strong>
+                    <span className="cell-sub">
+                      <Clock size={14} /> {formatTimeRange(item.request.startTime, item.request.endTime)}
                     </span>
-                  ) : (
-                    <span className="inbox-conflict-tag is-clean">
-                      <CheckCircle size={14} weight="fill" /> Slot clear
+                  </div>
+
+                  <div className="inbox-grid-cell">
+                    <span className="cell-label">Department & attendance</span>
+                    <strong>{item.event.department.name}</strong>
+                    <span className="cell-sub">
+                      <UsersThree size={14} /> {item.event.expectedAttendance} attendees expected
                     </span>
-                  )}
+                  </div>
+
+                  <div className="inbox-grid-cell">
+                    <span className="cell-label">Conflict status</span>
+                    {item.conflicts.confirmedCount > 0 ? (
+                      <span className="badge badge-danger">
+                        {item.conflicts.confirmedCount} confirmed conflict
+                      </span>
+                    ) : item.conflicts.pendingCount > 0 ? (
+                      <span className="badge badge-warning">
+                        {item.conflicts.pendingCount} competing request{item.conflicts.pendingCount > 1 ? 's' : ''}
+                      </span>
+                    ) : (
+                      <span className="badge badge-success">Slot clear</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       )}
     </>
