@@ -17,14 +17,12 @@ import {
   PageHeader,
   ROLE_DESCRIPTIONS,
   StatusBadge,
-  useToast,
 } from '../components/ui';
 
 export function AccountPage() {
   usePageTitle('My account');
   const { user, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
-  const { pushToast } = useToast();
   const [signingOut, setSigningOut] = useState(false);
 
   if (!user) return null;
@@ -36,14 +34,8 @@ export function AccountPage() {
     setSigningOut(true);
     try {
       await logout();
-      navigate('/login', { replace: true });
-    } catch {
-      pushToast({
-        tone: 'danger',
-        title: 'Could not sign out',
-        message: 'Check your connection and try again.',
-      });
     } finally {
+      navigate('/login', { replace: true });
       setSigningOut(false);
     }
   }

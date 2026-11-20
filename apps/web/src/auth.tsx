@@ -14,7 +14,7 @@ import {
   type SessionUser,
 } from '@venue/shared';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { api, ApiError } from './lib/api';
+import { api } from './lib/api';
 import { FullPageLoader } from './components/ui';
 
 const ME_KEY = ['auth', 'me'] as const;
@@ -51,12 +51,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     try {
       await api.logout();
-    } catch (error) {
-      // An expired session is already signed out server-side.
-      if (!(error instanceof ApiError) || error.status !== 401) throw error;
+    } catch {
+      // Regardless of server response or network state, always clear client session
+    } finally {
+      queryClient.clear();
+      queryClient.setQueryData(ME_KEY, null);
     }
-    queryClient.clear();
-    queryClient.setQueryData(ME_KEY, null);
   }, [queryClient]);
 
   const user = session.data?.user ?? null;

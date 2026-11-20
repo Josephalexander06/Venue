@@ -17,7 +17,7 @@ import {
 } from '@phosphor-icons/react';
 import { api } from '../lib/api';
 import { useAuth } from '../auth';
-import { Avatar, BrandLockup, Spinner, useToast } from './ui';
+import { Avatar, BrandLockup, Spinner } from './ui';
 
 const ROLE_PRIORITY: RoleName[] = [
   'ADMINISTRATOR',
@@ -39,7 +39,6 @@ function navClass({ isActive }: { isActive: boolean }) {
 export function AppShell() {
   const { user, isAdmin, isApprover, logout } = useAuth();
   const navigate = useNavigate();
-  const { pushToast } = useToast();
   const [signingOut, setSigningOut] = useState(false);
 
   const stats = useQuery({
@@ -69,14 +68,8 @@ export function AppShell() {
     setSigningOut(true);
     try {
       await logout();
-      navigate('/login', { replace: true });
-    } catch {
-      pushToast({
-        tone: 'danger',
-        title: 'Could not sign out',
-        message: 'Check your connection and try again.',
-      });
     } finally {
+      navigate('/login', { replace: true });
       setSigningOut(false);
     }
   }

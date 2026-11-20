@@ -340,6 +340,8 @@ export const BOOKING_ROLES: readonly RoleName[] = [
   'STUDENT',
   'FACULTY',
   'HOD',
+  'BURSAR',
+  'PRINCIPAL',
   'ADMINISTRATOR',
 ];
 

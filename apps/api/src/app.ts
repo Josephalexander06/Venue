@@ -37,8 +37,19 @@ export async function buildApp({ db, env, logger = true }: BuildAppOptions): Pro
     contentSecurityPolicy: false,
     crossOriginResourcePolicy: { policy: 'same-site' },
   });
+  const corsOrigins = [
+    env.FRONTEND_URL,
+    ...(env.NODE_ENV === 'development'
+      ? [
+          env.FRONTEND_URL.includes('localhost')
+            ? env.FRONTEND_URL.replace('localhost', '127.0.0.1')
+            : env.FRONTEND_URL.replace('127.0.0.1', 'localhost'),
+        ]
+      : []),
+  ];
+
   await app.register(cors, {
-    origin: env.FRONTEND_URL,
+    origin: corsOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
   });

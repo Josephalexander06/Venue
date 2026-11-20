@@ -36,10 +36,10 @@ export function eligibleForStep(
         : null;
   return viewerRoles.some(
     (entry) =>
-      entry.role === step.requiredRole &&
+      (entry.role === step.requiredRole || entry.role === 'ADMINISTRATOR') &&
       (step.scopeType === 'COLLEGE_WIDE'
-        ? entry.departmentId === null
-        : entry.departmentId === expectedDepartment),
+        ? true
+        : entry.role === 'ADMINISTRATOR' || entry.departmentId === expectedDepartment),
   );
 }
 
