@@ -3,11 +3,10 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import { sql } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import type { ApiErrorBody } from '@venue/shared';
 import type { AppEnv } from './env.js';
-import type { Database } from './db/index.js';
+import { checkDatabaseReadiness, type Database } from './db/index.js';
 import csrfPlugin from './plugins/csrf.js';
 import authPlugin from './plugins/auth.js';
 import authRoutes from './modules/auth/routes.js';
@@ -179,7 +178,7 @@ export async function buildApp({ db, env, logger = true }: BuildAppOptions): Pro
   app.get('/health/live', async () => ({ status: 'ok' }));
   app.get('/health/ready', async (request, reply) => {
     try {
-      await db.execute(sql`select 1`);
+      await checkDatabaseReadiness(db);
       return { status: 'ready' };
     } catch (error) {
       request.log.error({ err: error }, 'Readiness check failed');

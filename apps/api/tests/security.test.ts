@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import { parseEnv } from '../src/env.js';
-import type { Database } from '../src/db/index.js';
+import { createDatabase, type Database } from '../src/db/index.js';
 import {
   approvalWorkflows,
   departments,
@@ -74,6 +74,26 @@ describe('production security controls', () => {
     const ready = await app.inject({ method: 'GET', url: '/health/ready' });
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toEqual({ status: 'ready' });
+  });
+
+  it('reports not ready when PostgreSQL connects but the outbox is missing from the search path', async () => {
+    const env = parseEnv(process.env);
+    const { pool, db: isolated } = createDatabase(env.DATABASE_URL, 1);
+    try {
+      await isolated.execute(sql`set search_path to pg_catalog`);
+      const scopedApp = await buildApp({ db: isolated, env, logger: false });
+      try {
+        const live = await scopedApp.inject({ method: 'GET', url: '/health/live' });
+        expect(live.statusCode).toBe(200);
+        const ready = await scopedApp.inject({ method: 'GET', url: '/health/ready' });
+        expect(ready.statusCode).toBe(503);
+        expect(ready.json()).toEqual({ status: 'not_ready' });
+      } finally {
+        await scopedApp.close();
+      }
+    } finally {
+      await pool.end();
+    }
   });
 
   it('requires the CSRF header to revoke a session on logout', async () => {

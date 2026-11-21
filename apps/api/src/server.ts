@@ -1,11 +1,25 @@
 import { buildApp } from './app.js';
-import { createDatabase } from './db/index.js';
+import { checkDatabaseReadiness, createDatabase } from './db/index.js';
 import { env } from './env.js';
 import { startNotificationWorker } from './lib/notifications.js';
+import { findPostgresError } from './lib/postgres-error.js';
 import { cleanupSessions } from './modules/auth/service.js';
 
 const { pool, db } = createDatabase(env.DATABASE_URL);
 const app = await buildApp({ db, env });
+
+try {
+  await checkDatabaseReadiness(db);
+  await app.listen({ port: env.PORT, host: '0.0.0.0' });
+} catch (err) {
+  const message = findPostgresError(err)?.code === '42P01'
+    ? 'Notification outbox is missing. Apply database migrations to the API DATABASE_URL before starting.'
+    : 'API startup failed';
+  app.log.error({ err }, message);
+  await app.close();
+  await pool.end();
+  process.exit(1);
+}
 
 if (env.NODE_ENV === 'production' && env.NOTIFICATION_MODE === 'log') {
   app.log.warn(
@@ -42,11 +56,3 @@ async function shutdown(signal: string) {
 
 process.once('SIGINT', () => void shutdown('SIGINT'));
 process.once('SIGTERM', () => void shutdown('SIGTERM'));
-
-try {
-  await app.listen({ port: env.PORT, host: '0.0.0.0' });
-} catch (error) {
-  app.log.error(error);
-  await pool.end();
-  process.exit(1);
-}
