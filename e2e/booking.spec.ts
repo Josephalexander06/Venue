@@ -52,6 +52,40 @@ function futureDate(days = 30) {
   return `${year}-${month}-${day}`;
 }
 
+test('venue search checks the selected date and carries the slot into the request', async ({ page }) => {
+  await loginAsAdmin(page);
+  await page.goto('/venues');
+
+  await page.getByRole('button', { name: 'Open date calendar' }).click();
+  const calendar = page.getByRole('dialog', { name: 'Choose a date' });
+  await expect(calendar.getByRole('button', { pressed: true })).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await expect(calendar).toBeHidden();
+  const date = futureDate(2);
+  await expect(page.getByLabel('Event date')).toHaveValue(date);
+
+  await page.getByLabel('Start time').fill('09:15');
+  await page.getByLabel('End time').fill('09:00');
+  await page.getByRole('button', { name: 'Check availability' }).click();
+  await expect(page.getByRole('alert')).toContainText('Choose an end time after the start time.');
+
+  await page.getByLabel('End time').fill('11:45');
+  await page.getByLabel('Guests').fill('121');
+  await page.getByRole('button', { name: 'Check availability' }).click();
+  await expect(page.getByRole('list', { name: 'Matching venues' }).getByRole('article')).toHaveCount(1);
+  await page.getByRole('link', { name: 'Review this slot for Main Auditorium' }).click();
+  await expect(page.getByLabel('Date', { exact: true })).toHaveValue(date);
+  await expect(page.getByLabel('Start', { exact: true })).toHaveValue('09:15');
+  await expect(page.getByLabel('End', { exact: true })).toHaveValue('11:45');
+  await expect(page.getByLabel('Expected attendance')).toHaveValue('121');
+
+  await page.getByRole('link', { name: 'All venues' }).click();
+  await expect(page.getByLabel('Event date')).toHaveValue(date);
+  await expect(page.getByLabel('Guests')).toHaveValue('121');
+  await expect(page.getByRole('link', { name: 'Review this slot for Main Auditorium' })).toBeVisible();
+});
+
 async function register(
   page: Page,
   details: { email: string; firstName: string; lastName: string; password: string },
@@ -216,6 +250,13 @@ test('registration, approval, booking, endorsement and final allotment journey',
     .click();
   await expect(page.getByRole('dialog')).toBeHidden();
   await expect(page.getByText('Confirmed Venue Reservation')).toBeVisible();
+
+  await page.goto(`/venues?date=${futureDate()}&start=10%3A00&end=11%3A00`);
+  await page.getByRole('link', { name: 'Find another time for Main Auditorium' }).click();
+  await expect(page.getByText('This slot is already confirmed.')).toBeVisible();
+  await page.getByRole('button', { name: /Check 13:00/ }).click();
+  await expect(page.getByLabel('Start', { exact: true })).toHaveValue('13:00');
+  await expect(page.getByText('No conflicts found.')).toBeVisible();
 
   // The organizer sees the confirmed booking and can release the slot.
   await context.clearCookies();

@@ -497,10 +497,10 @@ export const api = {
     return request<VenueCalendar>(`/venues/${id}/calendar?${query.toString()}`);
   },
 
-  venueAvailability(id: string, from: string, to: string, excludeRequestId?: string) {
+  venueAvailability(id: string, from: string, to: string, excludeRequestId?: string, signal?: AbortSignal) {
     const query = new URLSearchParams({ from, to });
     if (excludeRequestId) query.set('excludeRequestId', excludeRequestId);
-    return request<Availability>(`/venues/${id}/availability?${query.toString()}`);
+    return request<Availability>(`/venues/${id}/availability?${query.toString()}`, { signal });
   },
 
   createVenue(input: VenueInput) {

@@ -9,22 +9,22 @@ import {
   Info,
   WarningCircle,
 } from '@phosphor-icons/react';
-import { api, ApiError } from '../lib/api';
+import { api, ApiError, fieldError } from '../lib/api';
 import { useAuth, usePageTitle } from '../auth';
 import { useToast, Alert, Button, PageHeader, SelectField, Skeleton, TextField, TextareaField } from '../components/ui';
+import { BookingDateField } from '../components/BookingDateField';
 import { VenueCalendar, type CalendarMode } from '../components/VenueCalendar';
 import {
   addDays,
-  combineDateTime,
   dateInputValue,
   endOfDay,
   monthGridRange,
-  parseDateKey,
+  formatTimeRange,
   startOfDay,
   startOfWeek,
   timeInputValue,
 } from '../lib/datetime';
-import { fieldError } from '../lib/api';
+import { getVenueSlot, parseBookingDate, readGuestCount, readVenueSlot, venueAvailabilityOptions, type VenueSlot } from '../lib/venue-slot';
 
 const DEFAULT_START = '10:00';
 const DEFAULT_END = '12:00';
@@ -40,22 +40,18 @@ export function VenueDetailPage() {
   const { user } = useAuth();
   const isStudent = user?.roles.some((r) => r.role === 'STUDENT');
 
-  const initialDate = searchParams.get('date');
-  const [selectedDate, setSelectedDate] = useState(() => {
-    if (initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate)) {
-      const parsed = parseDateKey(initialDate);
-      if (dateInputValue(parsed) === initialDate) return parsed;
-    }
-    return addDays(new Date(), 1);
-  });
-  const [mode, setMode] = useState<CalendarMode>('month');
+  const initialSlot = readVenueSlot(searchParams);
+  const [selectedDate, setSelectedDate] = useState(() =>
+    parseBookingDate(searchParams.get('date')) ?? addDays(new Date(), 1),
+  );
+  const [mode, setMode] = useState<CalendarMode>(initialSlot ? 'day' : 'month');
   const [anchor, setAnchor] = useState(selectedDate);
   const [date, setDate] = useState(() => dateInputValue(selectedDate));
-  const [startTime, setStartTime] = useState(DEFAULT_START);
-  const [endTime, setEndTime] = useState(DEFAULT_END);
+  const [startTime, setStartTime] = useState(initialSlot?.start ?? DEFAULT_START);
+  const [endTime, setEndTime] = useState(initialSlot?.end ?? DEFAULT_END);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [attendance, setAttendance] = useState('30');
+  const [attendance, setAttendance] = useState(() => String(readGuestCount(searchParams) ?? 30));
   const [draftEventId, setDraftEventId] = useState<string | null>(null);
   const [facultyCoordinatorId, setFacultyCoordinatorId] = useState('');
 
@@ -134,39 +130,13 @@ export function VenueDetailPage() {
     placeholderData: (previous) => previous,
   });
 
-  const requestedStart = useMemo(() => {
-    if (!date || !startTime) return null;
-    return combineDateTime(date, startTime);
-  }, [date, startTime]);
-  const requestedEnd = useMemo(() => {
-    if (!date || !endTime) return null;
-    return combineDateTime(date, endTime);
-  }, [date, endTime]);
-
-  const timesValid =
-    requestedStart &&
-    requestedEnd &&
-    !Number.isNaN(requestedStart.getTime()) &&
-    !Number.isNaN(requestedEnd.getTime()) &&
-    requestedEnd > requestedStart;
-
+  const slot = getVenueSlot(date, startTime, endTime);
+  const requestedStart = slot?.from;
+  const requestedEnd = slot?.to;
+  const startsInPast = Boolean(requestedStart && requestedStart < new Date());
   const availabilityQuery = useQuery({
-    queryKey: [
-      'venue-availability',
-      id,
-      requestedStart?.toISOString(),
-      requestedEnd?.toISOString(),
-      editRequestId,
-    ],
-    queryFn: () =>
-      api.venueAvailability(
-        id!,
-        requestedStart!.toISOString(),
-        requestedEnd!.toISOString(),
-        editRequestId ?? undefined,
-      ),
-    enabled: Boolean(id) && Boolean(timesValid),
-    retry: false,
+    ...venueAvailabilityOptions(id, startsInPast ? null : slot, editRequestId),
+    refetchOnMount: 'always',
   });
 
   const venue = venueQuery.data?.venue;
@@ -193,16 +163,20 @@ export function VenueDetailPage() {
   const capacityValid = venue ? Number.isInteger(capacity) && capacity >= 1 && capacity <= venue.capacity : false;
   const hasConfirmedConflict = availabilityQuery.data?.hasConfirmedConflict ?? false;
   const pendingConflicts = availabilityQuery.data?.pendingConflicts ?? [];
+  const alternatives = availabilityQuery.data?.confirmedConflicts ?? [];
+  const nextTime = alternatives.length && venue && slot
+    ? nextSlotAfterConflicts(venue.setupBufferMins, alternatives.map(({ rangeEnd }) => rangeEnd), slot)
+    : null;
   const canSubmit =
     Boolean(venue?.isActive) &&
     !editBlocked &&
     !draftEventBlocked &&
     (!editing || editQuery.isSuccess) &&
     (!draftEventIdParam || draftEventQuery.isSuccess) &&
-    Boolean(date >= dateInputValue(new Date())) &&
+    !startsInPast &&
     Boolean(title.trim().length >= 3) &&
     capacityValid &&
-    Boolean(timesValid) &&
+    Boolean(slot) &&
     !hasConfirmedConflict &&
     availabilityQuery.isSuccess &&
     !availabilityQuery.isFetching &&
@@ -309,10 +283,14 @@ export function VenueDetailPage() {
     setAnchor(next);
   }
 
+  const listParams = new URLSearchParams(searchParams);
+  listParams.delete('editRequest');
+  const backToVenues = listParams.size ? `/venues?${listParams}` : '/venues';
+
   return (
     <>
       <div className="detail-breadcrumb">
-        <Link to={draftEventIdParam ? `/venues?eventId=${draftEventIdParam}` : '/venues'} className="text-link">
+        <Link to={backToVenues} className="text-link">
           <ArrowLeft size={16} aria-hidden="true" /> All venues
         </Link>
       </div>
@@ -441,21 +419,15 @@ export function VenueDetailPage() {
               <legend className="sr-only">Venue request</legend>
               <h3 className="booking-section-title">Schedule</h3>
               <div className="booking-time-grid">
-                <TextField
+                <BookingDateField
                   label="Date"
                   name="booking-date"
-                  type="date"
                   value={date}
-                  min={dateInputValue(new Date())}
-                  onChange={(event) => {
-                    setDate(event.target.value);
-                    if (event.target.value) {
-                      const next = parseDateKey(event.target.value);
-                      setSelectedDate(next);
-                      setAnchor(next);
-                    }
+                  onChange={(value) => {
+                    const next = parseBookingDate(value);
+                    if (next) selectDate(next);
+                    else setDate(value);
                   }}
-                  required
                 />
                 <TextField
                   label="Start"
@@ -475,32 +447,46 @@ export function VenueDetailPage() {
                 />
               </div>
 
-              {!timesValid && date && startTime && endTime && (
+              {!slot && date && startTime && endTime && (
                 <p className="booking-inline-error">
                   <WarningCircle size={15} /> The end time must be after the start time.
                 </p>
               )}
 
-              {timesValid && availabilityQuery.isFetching && (
+              {startsInPast && (
+                <p className="booking-inline-error">
+                  <WarningCircle size={15} aria-hidden="true" /> Choose a start time in the future.
+                </p>
+              )}
+
+              {slot && availabilityQuery.isFetching && (
                 <div className="availability-note is-checking">
                   <Clock size={17} /> Checking availability…
                 </div>
               )}
 
-              {timesValid && hasConfirmedConflict && (
+              {slot && hasConfirmedConflict && (
                 <div className="availability-note is-blocked">
                   <WarningCircle size={18} />
                   <div>
                     <strong>This slot is already confirmed.</strong>
                     <p>
                       {availabilityQuery.data?.confirmedConflicts[0]?.title ?? 'Another event'} holds
-                      the venue. Choose another date or time.
+                      the venue, including its setup or cleanup time.
                     </p>
+                    {nextTime && (
+                      <button type="button" className="inline-link slot-alternative" onClick={() => {
+                        setStartTime(timeInputValue(nextTime.from));
+                        setEndTime(timeInputValue(nextTime.to));
+                      }}>
+                        Check {formatTimeRange(nextTime.from, nextTime.to)}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
 
-              {timesValid && !hasConfirmedConflict && pendingConflicts.length > 0 && (
+              {slot && !hasConfirmedConflict && pendingConflicts.length > 0 && (
                 <div className="availability-note is-warning">
                   <Info size={18} />
                   <div>
@@ -516,7 +502,7 @@ export function VenueDetailPage() {
                 </div>
               )}
 
-              {timesValid && !hasConfirmedConflict && pendingConflicts.length === 0 && availabilityQuery.isSuccess && !availabilityQuery.isFetching && (
+              {slot && !hasConfirmedConflict && pendingConflicts.length === 0 && availabilityQuery.isSuccess && !availabilityQuery.isFetching && (
                 <div className="availability-note is-open">
                   <CheckCircle size={18} />
                   <div>
@@ -620,4 +606,13 @@ export function VenueDetailPage() {
       </div>
     </>
   );
+}
+
+
+function nextSlotAfterConflicts(setupMinutes: number, conflictEnds: string[], slot: VenueSlot) {
+  const quarterHour = 15 * 60_000;
+  const afterSetup = Math.max(...conflictEnds.map((end) => Date.parse(end))) + setupMinutes * 60_000;
+  const from = new Date(Math.ceil(afterSetup / quarterHour) * quarterHour);
+  const to = new Date(from.getTime() + slot.to.getTime() - slot.from.getTime());
+  return from > slot.from && dateInputValue(to) === slot.date ? { from, to } : null;
 }

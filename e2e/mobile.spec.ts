@@ -8,8 +8,12 @@ test('mobile venue calendar and booking form stay usable', async ({ page }) => {
   await page.goto('/venues');
   await expect(page.getByRole('heading', { name: 'Find the right space' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Primary mobile' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open date calendar' }).click();
+  await expect(page.getByRole('dialog', { name: 'Choose a date' })).toBeVisible();
+  await page.getByRole('button', { name: 'Tomorrow', exact: true }).click();
+  await page.getByRole('button', { name: 'Check availability' }).click();
 
-  await page.getByRole('link', { name: 'Main Auditorium' }).click();
+  await page.getByRole('link', { name: 'Review this slot for Main Auditorium' }).click();
   await expect(page.getByRole('heading', { name: 'Main Auditorium' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Week', exact: true })).toBeVisible();
 

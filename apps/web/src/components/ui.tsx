@@ -131,7 +131,7 @@ export function IconButton({
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
   return (
-    <button className={`icon-button ${className}`.trim()} aria-label={label} title={label} {...props}>
+    <button type="button" className={`icon-button ${className}`.trim()} aria-label={label} title={label} {...props}>
       {children}
     </button>
   );
@@ -463,6 +463,7 @@ export function Dialog({
   onClose,
   title,
   description,
+  className = '',
   children,
   footer,
 }: {
@@ -470,6 +471,7 @@ export function Dialog({
   onClose: () => void;
   title: string;
   description?: string;
+  className?: string;
   children: ReactNode;
   footer?: ReactNode;
 }) {
@@ -487,7 +489,7 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
-      className="dialog"
+      className={`dialog ${className}`.trim()}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
       onClose={onClose}
