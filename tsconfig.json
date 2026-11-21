@@ -5,7 +5,10 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@venue/shared": ["./packages/shared/src/index.ts"]
+    }
   },
   "include": [
     "playwright.config.ts",
