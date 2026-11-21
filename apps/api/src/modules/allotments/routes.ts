@@ -40,9 +40,9 @@ export const allotmentRoutes: FastifyPluginAsync<{ db: Database }> = async (app,
   });
 
   // GET /competing/:requestId: Return side-by-side competitor comparison
-  app.get('/competing/:requestId', { preHandler: app.authenticate }, async (request) => {
+  app.get('/competing/:requestId', approverOnly, async (request) => {
     const { requestId } = parseInput(requestIdParamsSchema, request.params);
-    return getCompetingRequests(db, requestId);
+    return getCompetingRequests(db, requestId, viewerFrom(request));
   });
 
   // POST /:id/cancel: Cancel confirmed allotment

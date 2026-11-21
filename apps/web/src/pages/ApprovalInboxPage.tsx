@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
+  ArrowLeft,
+  ArrowRight,
   CalendarCheck,
   CheckCircle,
   Clock,
@@ -15,6 +17,7 @@ import { formatDate } from '../lib/format';
 import { formatTimeRange } from '../lib/datetime';
 import {
   Alert,
+  Button,
   EmptyState,
   PageHeader,
   Skeleton,
@@ -23,17 +26,28 @@ import { RequestStatusBadge } from '../components/booking';
 
 type InboxTab = 'all' | 'preliminary' | 'allotment' | 'conflicts';
 
+const PAGE_SIZE = 10;
+
 export function ApprovalInboxPage() {
   usePageTitle('Approval inbox');
   const [filter, setFilter] = useState<InboxTab>('all');
+  const [offset, setOffset] = useState(0);
 
   const inboxQuery = useQuery({
-    queryKey: ['approvals', 'inbox'],
-    queryFn: () => api.approvalInbox({ limit: 50 }),
+    queryKey: ['approvals', 'inbox', offset],
+    queryFn: () => api.approvalInbox({ limit: PAGE_SIZE, offset }),
     refetchInterval: 30_000,
   });
 
   const allItems = inboxQuery.data?.items ?? [];
+  const total = inboxQuery.data?.total ?? 0;
+  const page = Math.floor(offset / PAGE_SIZE) + 1;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  function changeFilter(next: InboxTab) {
+    setFilter(next);
+    setOffset(0);
+  }
 
   const preliminaryCount = allItems.filter(
     (i) => i.request.status === 'SUBMITTED' || i.request.status === 'IN_REVIEW',
@@ -69,7 +83,7 @@ export function ApprovalInboxPage() {
         actions={
           <div className="inbox-stats-pills">
             <span className="inbox-stat-pill">
-              <strong>{allItems.length}</strong> total in queue
+              <strong>{total}</strong> total in queue
             </span>
             {allotmentCount > 0 && (
               <span className="inbox-stat-pill is-success">
@@ -108,16 +122,16 @@ export function ApprovalInboxPage() {
           role="tab"
           aria-selected={filter === 'all'}
           className={`inbox-tab ${filter === 'all' ? 'is-active' : ''}`}
-          onClick={() => setFilter('all')}
+          onClick={() => changeFilter('all')}
         >
-          All items ({allItems.length})
+          All items ({total})
         </button>
         <button
           type="button"
           role="tab"
           aria-selected={filter === 'preliminary'}
           className={`inbox-tab ${filter === 'preliminary' ? 'is-active' : ''}`}
-          onClick={() => setFilter('preliminary')}
+          onClick={() => changeFilter('preliminary')}
         >
           Preliminary review ({preliminaryCount})
         </button>
@@ -126,7 +140,7 @@ export function ApprovalInboxPage() {
           role="tab"
           aria-selected={filter === 'allotment'}
           className={`inbox-tab ${filter === 'allotment' ? 'is-active' : ''}`}
-          onClick={() => setFilter('allotment')}
+          onClick={() => changeFilter('allotment')}
         >
           Ready for allotment ({allotmentCount})
         </button>
@@ -135,7 +149,7 @@ export function ApprovalInboxPage() {
           role="tab"
           aria-selected={filter === 'conflicts'}
           className={`inbox-tab ${filter === 'conflicts' ? 'is-active' : ''}`}
-          onClick={() => setFilter('conflicts')}
+          onClick={() => changeFilter('conflicts')}
         >
           With overlaps ({conflictCount})
         </button>
@@ -160,6 +174,7 @@ export function ApprovalInboxPage() {
           />
         </div>
       ) : (
+        <>
         <div className="inbox-list">
           {filteredItems.map((item) => {
             const isAllotment = item.request.status === 'APPROVED_PENDING_ALLOTMENT';
@@ -243,6 +258,34 @@ export function ApprovalInboxPage() {
             );
           })}
         </div>
+        <footer className="table-foot">
+          <p>
+            Showing <strong>{total === 0 ? 0 : offset + 1}–{Math.min(offset + PAGE_SIZE, total)}</strong> of{' '}
+            <strong>{total}</strong> requests
+          </p>
+          <div className="pagination">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={offset === 0}
+              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+            >
+              <ArrowLeft size={15} /> Previous
+            </Button>
+            <span className="page-indicator">
+              Page {page} of {totalPages}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={offset + PAGE_SIZE >= total}
+              onClick={() => setOffset(offset + PAGE_SIZE)}
+            >
+              Next <ArrowRight size={15} />
+            </Button>
+          </div>
+        </footer>
+        </>
       )}
     </>
   );

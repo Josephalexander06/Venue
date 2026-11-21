@@ -3,7 +3,9 @@ import { approvalInstances, departments, events, users, venueAllotments, venueRe
 import { writeAudit } from '../../lib/audit.js';
 import { bufferedRange } from '../../lib/booking.js';
 import { AppError } from '../../lib/errors.js';
+import { notifyRequestParticipants } from '../../lib/notifications.js';
 import { eligibleForStep, loadViewerRoles } from '../approvals/eligibility.js';
+import { getRequestView } from '../requests/service.js';
 import { mapRequestRow, requestSelection } from '../requests/view.js';
 // Deadlock and serialization retry helper
 async function withRetry(operation, maxRetries = 3) {
@@ -240,6 +242,13 @@ export async function confirmAllotment(db, viewer, input, context) {
                             allotmentId,
                         },
                     });
+                    await notifyRequestParticipants(tx, row.id, {
+                        type: 'REQUEST_SUPERSEDED',
+                        subject: 'Your venue request was superseded',
+                        body: `Another event was allotted the venue for your requested time. ${supersededReason}`,
+                        excludeUserId: viewer.userId,
+                        payload: { winningRequestId: lockedReq.id, allotmentId },
+                    });
                 }
             }
             // 12. Write audit log for the allotment confirmation
@@ -259,6 +268,13 @@ export async function confirmAllotment(db, viewer, input, context) {
                     isAdministrativeOverride: viewer.isAdmin && !normallyEligible,
                     supersededCount: supersededRows.length,
                 },
+            });
+            await notifyRequestParticipants(tx, lockedReq.id, {
+                type: 'ALLOTMENT_CONFIRMED',
+                subject: `Venue confirmed: ${reqRow.eventTitle}`,
+                body: `The venue for “${reqRow.eventTitle}” has been finally allotted. Your booking is confirmed.`,
+                excludeUserId: viewer.userId,
+                payload: { allotmentId, venueId: lockedReq.venueId },
             });
             return {
                 allotmentId,
@@ -384,6 +400,13 @@ export async function cancelAllotment(db, allotmentId, viewer, reason, context) 
                 },
             });
         }
+        await notifyRequestParticipants(tx, allotment.venueRequestId, {
+            type: 'ALLOTMENT_CANCELLED',
+            subject: `Venue booking cancelled: ${allotment.eventTitle}`,
+            body: `The confirmed venue booking for “${allotment.eventTitle}” was cancelled. Reason: ${reason}`,
+            excludeUserId: viewer.userId,
+            payload: { allotmentId, reason },
+        });
         return {
             success: true,
             allotmentId,
@@ -395,7 +418,10 @@ export async function cancelAllotment(db, allotmentId, viewer, reason, context) 
         };
     });
 }
-export async function getCompetingRequests(db, requestId) {
+export async function getCompetingRequests(db, requestId, viewer) {
+    // Reuse the request access rules so a request ID cannot expose another
+    // organizer's competitors to any signed-in account.
+    await getRequestView(db, requestId, viewer);
     const [targetReq] = await db
         .select({
         id: venueRequests.id,

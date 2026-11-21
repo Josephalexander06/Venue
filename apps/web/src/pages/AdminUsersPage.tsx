@@ -1,5 +1,10 @@
 import { useDeferredValue, useState } from 'react';
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  keepPreviousData,
+} from '@tanstack/react-query';
 import type { UserStatus } from '@venue/shared';
 import {
   ArrowLeft,
@@ -21,7 +26,9 @@ import {
   RoleBadge,
   Skeleton,
   StatusBadge,
+  useToast,
 } from '../components/ui';
+import { SuspendUserDialog } from '../components/SuspendUserDialog';
 import { UserReviewDialog } from '../components/UserReviewDialog';
 
 type StatusFilter = UserStatus | 'ALL';
@@ -48,6 +55,22 @@ export function AdminUsersPage() {
   const deferredSearch = useDeferredValue(search);
   const [offset, setOffset] = useState(0);
   const [target, setTarget] = useState<DialogTarget | null>(null);
+  const [suspendTarget, setSuspendTarget] = useState<UserView | null>(null);
+  const queryClient = useQueryClient();
+  const { pushToast } = useToast();
+
+  const reactivate = useMutation({
+    mutationFn: (userId: string) => api.reactivateUser(userId),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      pushToast({
+        tone: 'success',
+        title: 'Account reactivated',
+        message: `${result.user.firstName} ${result.user.lastName} can sign in again.`,
+      });
+    },
+  });
 
   const stats = useQuery({
     queryKey: ['admin', 'stats'],
@@ -276,12 +299,30 @@ export function AdminUsersPage() {
                             Review
                           </Button>
                         ) : account.status === 'ACTIVE' ? (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setTarget({ user: account, mode: 'roles' })}
+                            >
+                              Manage access
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setSuspendTarget(account)}
+                            >
+                              Suspend
+                            </Button>
+                          </>
+                        ) : account.status === 'SUSPENDED' ? (
                           <Button
-                            variant="ghost"
+                            variant="secondary"
                             size="sm"
-                            onClick={() => setTarget({ user: account, mode: 'roles' })}
+                            loading={reactivate.isPending && reactivate.variables === account.id}
+                            onClick={() => reactivate.mutate(account.id)}
                           >
-                            Manage access
+                            Reactivate
                           </Button>
                         ) : (
                           <span className="muted-dash">—</span>
@@ -330,6 +371,10 @@ export function AdminUsersPage() {
           mode={target.mode}
           onClose={() => setTarget(null)}
         />
+      )}
+
+      {suspendTarget && (
+        <SuspendUserDialog user={suspendTarget} onClose={() => setSuspendTarget(null)} />
       )}
     </>
   );

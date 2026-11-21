@@ -63,6 +63,10 @@ export declare const updateUserRolesSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$strip>;
 export type UpdateUserRolesInput = z.infer<typeof updateUserRolesSchema>;
+export declare const suspendUserSchema: z.ZodObject<{
+    reason: z.ZodString;
+}, z.core.$strip>;
+export type SuspendUserInput = z.infer<typeof suspendUserSchema>;
 export declare const MAX_FACILITY_LENGTH = 40;
 export declare const MAX_FACILITIES = 20;
 export declare const venueInputSchema: z.ZodObject<{

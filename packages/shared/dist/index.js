@@ -70,6 +70,9 @@ export const rejectUserSchema = z.object({
     reason: z.string().trim().min(5, 'Give a brief reason (at least 5 characters).').max(500),
 });
 export const updateUserRolesSchema = approveUserSchema;
+export const suspendUserSchema = z.object({
+    reason: z.string().trim().min(5, 'Give a brief reason (at least 5 characters).').max(500),
+});
 /* --------------------------------------------------------------- venues */
 export const MAX_FACILITY_LENGTH = 40;
 export const MAX_FACILITIES = 20;

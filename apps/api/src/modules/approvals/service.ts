@@ -17,6 +17,7 @@ import {
 } from '../../db/schema.js';
 import { writeAudit } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
+import { notifyRequestParticipants } from '../../lib/notifications.js';
 import {
   findRequestConflicts,
   getRequestView,
@@ -643,6 +644,19 @@ export async function decideRequest(
       },
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
+    });
+
+    await notifyRequestParticipants(tx, requestId, {
+      type: `APPROVAL_${input.decision}`,
+      subject: `Approval update: ${event.title}`,
+      body:
+        input.decision === 'APPROVED'
+          ? `Your venue request for “${event.title}” passed ${request.currentStepOrder === 0 ? 'faculty endorsement' : 'an approval stage'}.`
+          : input.decision === 'REJECTED'
+            ? `Your venue request for “${event.title}” was rejected. ${input.comments ?? ''}`.trim()
+            : `Changes were requested for “${event.title}”. ${input.comments ?? ''}`.trim(),
+      excludeUserId: viewer.userId,
+      payload: { decision: input.decision, status: nextStatus },
     });
 
     return { status: nextStatus, finalised: nextStatus === 'APPROVED_PENDING_ALLOTMENT' };

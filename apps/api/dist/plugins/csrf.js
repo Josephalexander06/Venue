@@ -2,11 +2,7 @@ import fp from 'fastify-plugin';
 import { AppError } from '../lib/errors.js';
 import { newOpaqueToken, safeEqual } from '../lib/tokens.js';
 import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from '../lib/tokens.js';
-const CSRF_EXEMPT = new Set([
-    '/api/v1/auth/login',
-    '/api/v1/auth/register',
-    '/api/v1/auth/logout',
-]);
+const CSRF_EXEMPT = new Set(['/api/v1/auth/login', '/api/v1/auth/register']);
 const csrfPlugin = async (app, { env }) => {
     const allowedOrigins = new Set([
         env.FRONTEND_URL,

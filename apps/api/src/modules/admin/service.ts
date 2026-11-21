@@ -1,9 +1,11 @@
-import { eq, inArray } from 'drizzle-orm';
+import { and, count, eq, inArray, ne } from 'drizzle-orm';
 import { DEPARTMENT_SCOPED_ROLES, type ApproveUserInput } from '@venue/shared';
 import type { Database } from '../../db/index.js';
 import { departments, roles, userRoles, users } from '../../db/schema.js';
 import { writeAudit } from '../../lib/audit.js';
+import { enqueueNotification } from '../../lib/notifications.js';
 import { AppError } from '../../lib/errors.js';
+import { revokeAllSessions } from '../auth/service.js';
 import { findUserView } from '../users/view.js';
 
 interface ActorContext {
@@ -139,6 +141,118 @@ export async function rejectUser(
       entityId: userId,
       oldState: { status: target.status },
       newState: { status: 'REJECTED', reason },
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+    });
+  });
+
+  const user = await findUserView(db, userId);
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User account not found.');
+  return user;
+}
+
+export async function suspendUser(
+  db: Database,
+  userId: string,
+  reason: string,
+  actor: ActorContext,
+) {
+  await db.transaction(async (tx) => {
+    const [target] = await tx
+      .select({ id: users.id, status: users.status })
+      .from(users)
+      .where(eq(users.id, userId))
+      .for('update')
+      .limit(1);
+
+    if (!target) throw new AppError(404, 'USER_NOT_FOUND', 'User account not found.');
+    if (target.id === actor.actorId) {
+      throw new AppError(403, 'SELF_SUSPENSION_FORBIDDEN', 'You cannot suspend your own account.');
+    }
+    if (target.status !== 'ACTIVE') {
+      throw new AppError(409, 'ACCOUNT_NOT_ACTIVE', 'Only active accounts can be suspended.');
+    }
+
+    const [remainingAdmins] = await tx
+      .select({ value: count() })
+      .from(userRoles)
+      .innerJoin(roles, eq(roles.id, userRoles.roleId))
+      .innerJoin(users, eq(users.id, userRoles.userId))
+      .where(
+        and(
+          eq(roles.name, 'ADMINISTRATOR'),
+          eq(users.status, 'ACTIVE'),
+          ne(users.id, userId),
+        ),
+      );
+    if ((remainingAdmins?.value ?? 0) === 0) {
+      throw new AppError(
+        409,
+        'LAST_ADMINISTRATOR',
+        'The last active administrator cannot be suspended.',
+      );
+    }
+
+    await tx
+      .update(users)
+      .set({ status: 'SUSPENDED', statusReason: reason, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+    await revokeAllSessions(tx, userId);
+    await enqueueNotification(tx, {
+      recipientUserId: userId,
+      type: 'ACCOUNT_SUSPENDED',
+      subject: 'Your Campus Venue account has been suspended',
+      body: `An administrator suspended your account. Reason: ${reason}`,
+      payload: { reason },
+    });
+    await writeAudit(tx, {
+      actorId: actor.actorId,
+      action: 'USER_SUSPENDED',
+      entityName: 'users',
+      entityId: userId,
+      oldState: { status: target.status },
+      newState: { status: 'SUSPENDED', reason },
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+    });
+  });
+
+  const user = await findUserView(db, userId);
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User account not found.');
+  return user;
+}
+
+export async function reactivateUser(db: Database, userId: string, actor: ActorContext) {
+  await db.transaction(async (tx) => {
+    const [target] = await tx
+      .select({ id: users.id, status: users.status })
+      .from(users)
+      .where(eq(users.id, userId))
+      .for('update')
+      .limit(1);
+
+    if (!target) throw new AppError(404, 'USER_NOT_FOUND', 'User account not found.');
+    if (target.status !== 'SUSPENDED') {
+      throw new AppError(409, 'ACCOUNT_NOT_SUSPENDED', 'This account is not suspended.');
+    }
+
+    await tx
+      .update(users)
+      .set({ status: 'ACTIVE', statusReason: null, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+    await enqueueNotification(tx, {
+      recipientUserId: userId,
+      type: 'ACCOUNT_REACTIVATED',
+      subject: 'Your Campus Venue account has been reactivated',
+      body: 'An administrator reactivated your account. You can sign in again.',
+    });
+    await writeAudit(tx, {
+      actorId: actor.actorId,
+      action: 'USER_REACTIVATED',
+      entityName: 'users',
+      entityId: userId,
+      oldState: { status: target.status },
+      newState: { status: 'ACTIVE' },
       ipAddress: actor.ipAddress,
       userAgent: actor.userAgent,
     });

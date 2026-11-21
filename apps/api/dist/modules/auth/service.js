@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, eq, gt, isNotNull, isNull, lt, or } from 'drizzle-orm';
 import { departments, sessions, users } from '../../db/schema.js';
 import { AppError } from '../../lib/errors.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
@@ -116,5 +116,13 @@ export async function revokeAllSessions(db, userId) {
         .update(sessions)
         .set({ revokedAt: new Date() })
         .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
+}
+export async function cleanupSessions(db, retentionDays) {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+    const deleted = await db
+        .delete(sessions)
+        .where(or(lt(sessions.expiresAt, cutoff), and(isNotNull(sessions.revokedAt), lt(sessions.revokedAt, cutoff))))
+        .returning({ id: sessions.id });
+    return deleted.length;
 }
 //# sourceMappingURL=service.js.map

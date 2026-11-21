@@ -29,6 +29,13 @@
       "when": 1795179300000,
       "tag": "0003_event_collaboration",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795232191272,
+      "tag": "0004_gigantic_master_chief",
+      "breakpoints": true
     }
   ]
 }

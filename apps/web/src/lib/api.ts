@@ -646,6 +646,19 @@ export const api = {
     });
   },
 
+  suspendUser(userId: string, reason: string) {
+    return request<{ user: UserView }>(`/admin/users/${userId}/suspend`, {
+      method: 'PATCH',
+      body: jsonBody({ reason }),
+    });
+  },
+
+  reactivateUser(userId: string) {
+    return request<{ user: UserView }>(`/admin/users/${userId}/reactivate`, {
+      method: 'PATCH',
+    });
+  },
+
   confirmAllotment(input: AllotmentConfirmInput) {
     return request<AllotmentConfirmResult>('/allotments/confirm', {
       method: 'POST',

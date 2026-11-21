@@ -3,6 +3,7 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import { sql } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import type { ApiErrorBody } from '@venue/shared';
 import type { AppEnv } from './env.js';
@@ -29,14 +30,34 @@ interface BuildAppOptions {
 
 export async function buildApp({ db, env, logger = true }: BuildAppOptions): Promise<FastifyInstance> {
   const app = Fastify({
-    logger,
+    logger: logger
+      ? {
+          level: env.LOG_LEVEL,
+          redact: [
+            'req.headers.cookie',
+            'req.headers.authorization',
+            'res.headers["set-cookie"]',
+          ],
+        }
+      : false,
     trustProxy: env.TRUST_PROXY,
     bodyLimit: 1024 * 1024,
+    requestTimeout: 30_000,
+    connectionTimeout: 10_000,
   });
 
   await app.register(helmet, {
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'none'"],
+        baseUri: ["'none'"],
+        frameAncestors: ["'none'"],
+        formAction: ["'none'"],
+      },
+    },
     crossOriginResourcePolicy: { policy: 'same-site' },
+    referrerPolicy: { policy: 'no-referrer' },
+    hsts: env.NODE_ENV === 'production' ? { maxAge: 31_536_000, includeSubDomains: true } : false,
   });
   const corsOrigins = [
     env.FRONTEND_URL,
@@ -53,16 +74,25 @@ export async function buildApp({ db, env, logger = true }: BuildAppOptions): Pro
     origin: corsOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Accept', 'Content-Type', 'X-CSRF-Token'],
+    maxAge: 600,
   });
   await app.register(cookie);
   await app.register(rateLimit, {
     global: env.NODE_ENV !== 'test',
     max: env.RATE_LIMIT_MAX,
     timeWindow: '1 minute',
-    allowList: (request) => request.url === '/health',
+    allowList: (request) => ['/health', '/health/live', '/health/ready'].includes(request.url),
   });
   await app.register(csrfPlugin, { env });
   await app.register(authPlugin, { db });
+
+  app.addHook('onSend', async (request, reply, payload) => {
+    if (request.url.startsWith('/api/v1')) {
+      reply.header('cache-control', 'no-store');
+    }
+    return payload;
+  });
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
     if (error instanceof AppError) {
@@ -88,6 +118,27 @@ export async function buildApp({ db, env, logger = true }: BuildAppOptions): Pro
         message: isEmail
           ? 'An account with that email already exists.'
           : 'That record conflicts with an existing one.',
+      } satisfies ApiErrorBody);
+    }
+    if (pgError?.code === '23503') {
+      return reply.status(409).send({
+        statusCode: 409,
+        code: 'RELATED_RECORD_IN_USE',
+        message: 'That record is still referenced by other data and cannot be changed.',
+      } satisfies ApiErrorBody);
+    }
+    if (pgError?.code === '23514') {
+      return reply.status(400).send({
+        statusCode: 400,
+        code: 'CONSTRAINT_VIOLATION',
+        message: 'The submitted values do not satisfy the data rules.',
+      } satisfies ApiErrorBody);
+    }
+    if (pgError?.code === '22P02') {
+      return reply.status(400).send({
+        statusCode: 400,
+        code: 'INVALID_IDENTIFIER',
+        message: 'One of the supplied identifiers is not valid.',
       } satisfies ApiErrorBody);
     }
     if (pgError?.code === '23P01') {
@@ -125,6 +176,16 @@ export async function buildApp({ db, env, logger = true }: BuildAppOptions): Pro
   });
 
   app.get('/health', async () => ({ status: 'ok' }));
+  app.get('/health/live', async () => ({ status: 'ok' }));
+  app.get('/health/ready', async (request, reply) => {
+    try {
+      await db.execute(sql`select 1`);
+      return { status: 'ready' };
+    } catch (error) {
+      request.log.error({ err: error }, 'Readiness check failed');
+      return reply.code(503).send({ status: 'not_ready' });
+    }
+  });
 
   await app.register(departmentRoutes, { db, prefix: '/api/v1' });
   await app.register(authRoutes, { db, env, prefix: '/api/v1/auth' });

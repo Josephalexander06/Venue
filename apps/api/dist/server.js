@@ -1,10 +1,31 @@
 import { buildApp } from './app.js';
 import { createDatabase } from './db/index.js';
 import { env } from './env.js';
+import { startNotificationWorker } from './lib/notifications.js';
+import { cleanupSessions } from './modules/auth/service.js';
 const { pool, db } = createDatabase(env.DATABASE_URL);
 const app = await buildApp({ db, env });
+if (env.NODE_ENV === 'production' && env.NOTIFICATION_MODE === 'log') {
+    app.log.warn('NOTIFICATION_MODE=log is active in production; notifications will only appear in the API log.');
+}
+const stopNotificationWorker = startNotificationWorker(db, env, app.log);
+async function cleanup() {
+    try {
+        const deleted = await cleanupSessions(db, env.SESSION_RETENTION_DAYS);
+        if (deleted > 0)
+            app.log.info({ deleted }, 'Expired sessions cleaned up');
+    }
+    catch (error) {
+        app.log.error({ err: error }, 'Session cleanup failed');
+    }
+}
+void cleanup();
+const cleanupTimer = setInterval(() => void cleanup(), env.SESSION_CLEANUP_INTERVAL_HOURS * 60 * 60 * 1000);
+cleanupTimer.unref();
 async function shutdown(signal) {
     app.log.info({ signal }, 'Shutting down');
+    stopNotificationWorker();
+    clearInterval(cleanupTimer);
     await app.close();
     await pool.end();
     process.exit(0);

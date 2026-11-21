@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import { count } from 'drizzle-orm';
-import { approveUserSchema, rejectUserSchema, updateUserRolesSchema, USER_STATUSES, } from '@venue/shared';
+import { approveUserSchema, rejectUserSchema, suspendUserSchema, updateUserRolesSchema, USER_STATUSES, } from '@venue/shared';
 import { users } from '../../db/schema.js';
 import { parseInput } from '../../lib/validation.js';
 import { listUserViews } from '../users/view.js';
-import { approveUser, rejectUser, updateUserRoles } from './service.js';
+import { approveUser, reactivateUser, rejectUser, suspendUser, updateUserRoles, } from './service.js';
 const listQuerySchema = z.object({
     status: z.enum(USER_STATUSES).optional(),
     search: z
@@ -75,6 +75,25 @@ const adminRoutes = async (app, { db }) => {
         const { id } = parseInput(idParamsSchema, request.params);
         const input = parseInput(updateUserRolesSchema, request.body);
         const user = await updateUserRoles(db, id, input, {
+            actorId: request.auth.user.id,
+            ipAddress: request.ip,
+            userAgent: request.headers['user-agent'],
+        });
+        return { user };
+    });
+    app.patch('/users/:id/suspend', adminOnly, async (request) => {
+        const { id } = parseInput(idParamsSchema, request.params);
+        const input = parseInput(suspendUserSchema, request.body);
+        const user = await suspendUser(db, id, input.reason, {
+            actorId: request.auth.user.id,
+            ipAddress: request.ip,
+            userAgent: request.headers['user-agent'],
+        });
+        return { user };
+    });
+    app.patch('/users/:id/reactivate', adminOnly, async (request) => {
+        const { id } = parseInput(idParamsSchema, request.params);
+        const user = await reactivateUser(db, id, {
             actorId: request.auth.user.id,
             ipAddress: request.ip,
             userAgent: request.headers['user-agent'],

@@ -26,6 +26,7 @@ export async function resetDatabase() {
   await db.execute(sql`
     TRUNCATE TABLE
       audit_logs,
+      notification_outbox,
       sessions,
       approval_decisions,
       approval_instances,

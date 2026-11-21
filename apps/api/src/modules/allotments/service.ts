@@ -14,7 +14,9 @@ import {
 import { writeAudit } from '../../lib/audit.js';
 import { bufferedRange } from '../../lib/booking.js';
 import { AppError } from '../../lib/errors.js';
+import { notifyRequestParticipants } from '../../lib/notifications.js';
 import { eligibleForStep, loadViewerRoles } from '../approvals/eligibility.js';
+import { getRequestView } from '../requests/service.js';
 import { mapRequestRow, requestSelection, type EventSummary } from '../requests/view.js';
 
 interface Viewer {
@@ -392,6 +394,13 @@ export async function confirmAllotment(
               allotmentId,
             },
           });
+          await notifyRequestParticipants(tx, row.id, {
+            type: 'REQUEST_SUPERSEDED',
+            subject: 'Your venue request was superseded',
+            body: `Another event was allotted the venue for your requested time. ${supersededReason}`,
+            excludeUserId: viewer.userId,
+            payload: { winningRequestId: lockedReq.id, allotmentId },
+          });
         }
       }
 
@@ -412,6 +421,14 @@ export async function confirmAllotment(
           isAdministrativeOverride: viewer.isAdmin && !normallyEligible,
           supersededCount: supersededRows.length,
         },
+      });
+
+      await notifyRequestParticipants(tx, lockedReq.id, {
+        type: 'ALLOTMENT_CONFIRMED',
+        subject: `Venue confirmed: ${reqRow.eventTitle}`,
+        body: `The venue for “${reqRow.eventTitle}” has been finally allotted. Your booking is confirmed.`,
+        excludeUserId: viewer.userId,
+        payload: { allotmentId, venueId: lockedReq.venueId },
       });
 
       return {
@@ -583,6 +600,14 @@ export async function cancelAllotment(
       });
     }
 
+    await notifyRequestParticipants(tx, allotment.venueRequestId, {
+      type: 'ALLOTMENT_CANCELLED',
+      subject: `Venue booking cancelled: ${allotment.eventTitle}`,
+      body: `The confirmed venue booking for “${allotment.eventTitle}” was cancelled. Reason: ${reason}`,
+      excludeUserId: viewer.userId,
+      payload: { allotmentId, reason },
+    });
+
     return {
       success: true,
       allotmentId,
@@ -598,7 +623,12 @@ export async function cancelAllotment(
 export async function getCompetingRequests(
   db: Database,
   requestId: string,
+  viewer: Viewer,
 ) {
+  // Reuse the request access rules so a request ID cannot expose another
+  // organizer's competitors to any signed-in account.
+  await getRequestView(db, requestId, viewer);
+
   const [targetReq] = await db
     .select({
       id: venueRequests.id,

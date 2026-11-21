@@ -198,18 +198,48 @@ export const userRoles = pgTable(
   ],
 );
 
-export const sessions = pgTable('sessions', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
-  ipAddress: varchar('ip_address', { length: 45 }),
-  userAgent: text('user_agent'),
-  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-  revokedAt: timestamp('revoked_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const sessions = pgTable(
+  'sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
+    ipAddress: varchar('ip_address', { length: 45 }),
+    userAgent: text('user_agent'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('sessions_expiry_idx').on(table.expiresAt, table.revokedAt)],
+);
+
+export const notificationOutbox = pgTable(
+  'notification_outbox',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    recipientUserId: uuid('recipient_user_id').references(() => users.id, { onDelete: 'set null' }),
+    type: varchar('type', { length: 80 }).notNull(),
+    subject: varchar('subject', { length: 200 }).notNull(),
+    body: text('body').notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>(),
+    status: varchar('status', { length: 20 }).notNull().default('PENDING'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+  },
+  (table) => [
+    check(
+      'notification_outbox_status_valid',
+      sql`${table.status} in ('PENDING', 'PROCESSING', 'SENT', 'FAILED')`,
+    ),
+    index('notification_outbox_pending_idx').on(table.status, table.nextAttemptAt),
+  ],
+);
 
 export const events = pgTable(
   'events',

@@ -1,6 +1,6 @@
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, eq, gt, isNotNull, isNull, lt, or } from 'drizzle-orm';
 import type { SessionUser, UserStatus } from '@venue/shared';
-import type { Database } from '../../db/index.js';
+import type { Database, DbExecutor } from '../../db/index.js';
 import { departments, sessions, users } from '../../db/schema.js';
 import { AppError } from '../../lib/errors.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
@@ -160,16 +160,30 @@ export async function resolveSession(
   return { sessionId: row.id, tokenHash, user };
 }
 
-export async function revokeSession(db: Database, tokenHash: string) {
+export async function revokeSession(db: DbExecutor, tokenHash: string) {
   await db
     .update(sessions)
     .set({ revokedAt: new Date() })
     .where(and(eq(sessions.tokenHash, tokenHash), isNull(sessions.revokedAt)));
 }
 
-export async function revokeAllSessions(db: Database, userId: string) {
+export async function revokeAllSessions(db: DbExecutor, userId: string) {
   await db
     .update(sessions)
     .set({ revokedAt: new Date() })
     .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
+}
+
+export async function cleanupSessions(db: Database, retentionDays: number) {
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+  const deleted = await db
+    .delete(sessions)
+    .where(
+      or(
+        lt(sessions.expiresAt, cutoff),
+        and(isNotNull(sessions.revokedAt), lt(sessions.revokedAt, cutoff)),
+      ),
+    )
+    .returning({ id: sessions.id });
+  return deleted.length;
 }

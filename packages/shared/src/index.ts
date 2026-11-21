@@ -89,6 +89,11 @@ export type RejectUserInput = z.infer<typeof rejectUserSchema>;
 export const updateUserRolesSchema = approveUserSchema;
 export type UpdateUserRolesInput = z.infer<typeof updateUserRolesSchema>;
 
+export const suspendUserSchema = z.object({
+  reason: z.string().trim().min(5, 'Give a brief reason (at least 5 characters).').max(500),
+});
+export type SuspendUserInput = z.infer<typeof suspendUserSchema>;
+
 /* --------------------------------------------------------------- venues */
 
 export const MAX_FACILITY_LENGTH = 40;
