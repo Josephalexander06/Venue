@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import type { AllotmentConfirmInput, RoleName, WorkflowScopeType } from '@venue/shared';
-import type { Database } from '../../db/index.js';
+import type { Database, DbTransaction } from '../../db/index.js';
 import {
   approvalInstances,
   departments,
@@ -15,6 +15,7 @@ import { writeAudit } from '../../lib/audit.js';
 import { bufferedRange } from '../../lib/booking.js';
 import { AppError } from '../../lib/errors.js';
 import { notifyRequestParticipants } from '../../lib/notifications.js';
+import { findPostgresError } from '../../lib/postgres-error.js';
 import { eligibleForStep, loadViewerRoles } from '../approvals/eligibility.js';
 import { isEventCollaborator } from '../events/service.js';
 import { getRequestView } from '../requests/service.js';
@@ -73,7 +74,7 @@ async function withRetry<T>(operation: () => Promise<T>, maxRetries = 3): Promis
       return await operation();
     } catch (error: unknown) {
       attempt++;
-      const err = error as { code?: string } | null;
+      const err = findPostgresError(error);
       // 40P01 = deadlock_detected, 40001 = serialization_failure
       if ((err?.code === '40P01' || err?.code === '40001') && attempt < maxRetries) {
         const jitter = Math.floor(Math.random() * 50) + 20 * attempt;
@@ -91,24 +92,23 @@ export async function confirmAllotment(
   viewer: Viewer,
   input: AllotmentConfirmInput,
   context: RequestContext,
+  recordApproval?: (tx: DbTransaction) => Promise<{ finalised: boolean }>,
 ): Promise<AllotmentResult> {
   return withRetry(async () => {
     return db.transaction(async (tx) => {
-      // 1. Fetch request details to identify venue and event
+      const [target] = await tx
+        .select({ venueId: venueRequests.venueId })
+        .from(venueRequests)
+        .where(eq(venueRequests.id, input.venueRequestId));
+      if (!target) throw new AppError(404, 'REQUEST_NOT_FOUND', 'Venue request not found.');
+
+      // Serialize allotments for this venue before locking any candidate request.
+      await tx.execute(sql`SELECT id FROM venues WHERE id = ${target.venueId} FOR UPDATE`);
       const [reqRow] = await tx
         .select({
-          id: venueRequests.id,
-          eventId: venueRequests.eventId,
-          venueId: venueRequests.venueId,
-          workflowId: venueRequests.workflowId,
-          startTime: venueRequests.startTime,
-          endTime: venueRequests.endTime,
-          setupBufferMins: venueRequests.setupBufferMins,
-          teardownBufferMins: venueRequests.teardownBufferMins,
-          status: venueRequests.status,
+          request: venueRequests,
           creatorId: events.creatorId,
           facultyCoordinatorId: events.facultyCoordinatorId,
-          submittedById: venueRequests.submittedById,
           eventTitle: events.title,
           departmentId: events.departmentId,
           venueDepartmentId: venues.departmentId,
@@ -116,81 +116,14 @@ export async function confirmAllotment(
         .from(venueRequests)
         .innerJoin(events, eq(events.id, venueRequests.eventId))
         .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-        .where(eq(venueRequests.id, input.venueRequestId));
-
-      if (!reqRow) {
-        throw new AppError(404, 'REQUEST_NOT_FOUND', 'Venue request not found.');
-      }
-
-      // Idempotency: if request is already confirmed with an active allotment, return existing record
-      if (reqRow.status === 'CONFIRMED') {
-        const [existing] = await tx
-          .select({
-            id: venueAllotments.id,
-            status: venueAllotments.status,
-            venueId: venueAllotments.venueId,
-            reservedRange: sql<string>`${venueAllotments.reservedRange}::text`,
-          })
-          .from(venueAllotments)
-          .where(
-            and(
-              eq(venueAllotments.venueRequestId, reqRow.id),
-              eq(venueAllotments.status, 'ACTIVE'),
-            ),
-          );
-        if (existing) {
-          return {
-            allotmentId: existing.id,
-            status: 'ACTIVE',
-            venueId: existing.venueId,
-            reservedRange: existing.reservedRange,
-            supersededRequestsCount: 0,
-            supersededRequestIds: [],
-          };
-        }
-      }
-
-      // 2. Lock target venue row to serialize concurrent allotment attempts for this venue
-      await tx.execute(sql`SELECT id FROM venues WHERE id = ${reqRow.venueId} FOR UPDATE`);
-
-      // 3. Lock target request row
-      const [lockedReq] = await tx
-        .select()
-        .from(venueRequests)
         .where(eq(venueRequests.id, input.venueRequestId))
-        .for('update');
+        .for('update', { of: venueRequests });
+      if (!reqRow) throw new AppError(404, 'REQUEST_NOT_FOUND', 'Venue request not found.');
 
-      if (!lockedReq) {
-        throw new AppError(404, 'REQUEST_NOT_FOUND', 'Venue request not found.');
+      const lockedReq = reqRow.request;
+      if (target.venueId !== lockedReq.venueId) {
+        throw new AppError(409, 'APPROVAL_STATE_CHANGED', 'The selected venue changed. Review the updated request.');
       }
-
-      if (lockedReq.status === 'CONFIRMED') {
-        const [existing] = await tx
-          .select({
-            id: venueAllotments.id,
-            status: venueAllotments.status,
-            venueId: venueAllotments.venueId,
-            reservedRange: sql<string>`${venueAllotments.reservedRange}::text`,
-          })
-          .from(venueAllotments)
-          .where(
-            and(
-              eq(venueAllotments.venueRequestId, lockedReq.id),
-              eq(venueAllotments.status, 'ACTIVE'),
-            ),
-          );
-        if (existing) {
-          return {
-            allotmentId: existing.id,
-            status: 'ACTIVE',
-            venueId: existing.venueId,
-            reservedRange: existing.reservedRange,
-            supersededRequestsCount: 0,
-            supersededRequestIds: [],
-          };
-        }
-      }
-
       if (lockedReq.status === 'SUPERSEDED_CONFLICT') {
         throw new AppError(
           409,
@@ -199,19 +132,11 @@ export async function confirmAllotment(
         );
       }
 
-      if (lockedReq.status !== 'APPROVED_PENDING_ALLOTMENT') {
-        throw new AppError(
-          409,
-          'REQUEST_NOT_READY_FOR_ALLOTMENT',
-          'Only requests with completed preliminary approvals can receive final allotment.',
-        );
-      }
-
       // 4. Separation of duties: requester/collaborator/coordinator cannot allot their own request
-      const isCollaborator = await isEventCollaborator(tx, reqRow.eventId, viewer.userId);
+      const isCollaborator = await isEventCollaborator(tx, lockedReq.eventId, viewer.userId);
       if (
         reqRow.creatorId === viewer.userId ||
-        reqRow.submittedById === viewer.userId ||
+        lockedReq.submittedById === viewer.userId ||
         reqRow.facultyCoordinatorId === viewer.userId ||
         isCollaborator
       ) {
@@ -226,7 +151,7 @@ export async function confirmAllotment(
       const steps = await tx
         .select()
         .from(workflowSteps)
-        .where(eq(workflowSteps.workflowId, reqRow.workflowId))
+        .where(eq(workflowSteps.workflowId, lockedReq.workflowId))
         .orderBy(asc(workflowSteps.stepOrder));
 
       const finalStep =
@@ -243,6 +168,44 @@ export async function confirmAllotment(
           'ALLOTMENT_FORBIDDEN',
           'You are not authorized to confirm final allotment for this workflow.',
         );
+      }
+
+      if (lockedReq.status === 'CONFIRMED') {
+        const [existing] = await tx
+          .select({
+            allotmentId: venueAllotments.id,
+            venueId: venueAllotments.venueId,
+            reservedRange: sql<string>`${venueAllotments.reservedRange}::text`,
+          })
+          .from(venueAllotments)
+          .where(and(
+            eq(venueAllotments.venueRequestId, lockedReq.id),
+            eq(venueAllotments.status, 'ACTIVE'),
+          ));
+        if (existing) {
+          return {
+            ...existing,
+            status: 'ACTIVE',
+            supersededRequestsCount: 0,
+            supersededRequestIds: [],
+          };
+        }
+      }
+
+      if (recordApproval) {
+        if (!finalStep || finalStep.stepOrder !== lockedReq.currentStepOrder ||
+          !['SUBMITTED', 'IN_REVIEW'].includes(lockedReq.status)) {
+          throw new AppError(409, 'FINAL_APPROVAL_NOT_READY', 'This request is not ready for final approval and allotment.');
+        }
+      } else if (lockedReq.status !== 'APPROVED_PENDING_ALLOTMENT') {
+        throw new AppError(
+          409,
+          'REQUEST_NOT_READY_FOR_ALLOTMENT',
+          'Only requests with completed preliminary approvals can receive final allotment.',
+        );
+      }
+      if (input.expectedUpdatedAt && lockedReq.updatedAt.getTime() !== Date.parse(input.expectedUpdatedAt)) {
+        throw new AppError(409, 'APPROVAL_STATE_CHANGED', 'This request changed. Review the updated details before confirming.');
       }
 
       // If an administrator is overriding an allotment step where they are not normally eligible, require remarks
@@ -295,6 +258,10 @@ export async function confirmAllotment(
         );
       }
 
+      if (recordApproval && !(await recordApproval(tx)).finalised) {
+        throw new AppError(409, 'FINAL_APPROVAL_NOT_READY', 'This request still has approval steps remaining.');
+      }
+
       // 8. Insert new active allotment (protected by GiST exclusion constraint)
       let allotmentId: string;
       try {
@@ -312,7 +279,7 @@ export async function confirmAllotment(
         if (!created) throw new Error('Allotment insert returned no row.');
         allotmentId = created.id;
       } catch (err: unknown) {
-        const pgErr = err as { code?: string } | null;
+        const pgErr = findPostgresError(err);
         if (pgErr?.code === '23P01') {
           throw new AppError(
             409,
@@ -366,6 +333,13 @@ export async function confirmAllotment(
           ),
         )
         .returning({ id: venueRequests.id, eventId: venueRequests.eventId });
+
+      if (input.reviewedCompetingRequestIds) {
+        const reviewed = new Set(input.reviewedCompetingRequestIds);
+        if (supersededRows.some((row) => !reviewed.has(row.id))) {
+          throw new AppError(409, 'COMPETING_REQUESTS_CHANGED', 'New competing requests arrived. Review them before confirming.');
+        }
+      }
 
       // Invalidate active approval instances for all superseded requests
       if (supersededRows.length > 0) {

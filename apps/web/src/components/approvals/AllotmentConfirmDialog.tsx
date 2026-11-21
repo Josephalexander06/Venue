@@ -8,6 +8,8 @@ interface AllotmentConfirmDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   detail: RequestDetailView;
+  action: string;
+  unavailable: boolean;
   onConfirm: (remarks: string) => Promise<void>;
   isOverride?: boolean;
 }
@@ -16,6 +18,8 @@ export function AllotmentConfirmDialog({
   open,
   onOpenChange,
   detail,
+  action,
+  unavailable,
   onConfirm,
   isOverride = false,
 }: AllotmentConfirmDialogProps) {
@@ -25,7 +29,7 @@ export function AllotmentConfirmDialog({
 
   const { request, event, conflicts } = detail;
   const competingCount = conflicts.pending.length;
-  const blocked = conflicts.confirmed.length > 0;
+  const blocked = conflicts.confirmed.length > 0 || unavailable;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -51,8 +55,8 @@ export function AllotmentConfirmDialog({
   return (
     <Dialog
       open={open}
-      onClose={() => onOpenChange(false)}
-      title="Confirm venue allotment"
+      onClose={() => { if (!submitting) onOpenChange(false); }}
+      title={action}
       description="This reserves the venue for the event, including setup and cleanup time."
     >
       <form onSubmit={handleSubmit} className="allotment-dialog-form">
@@ -65,14 +69,23 @@ export function AllotmentConfirmDialog({
           </dl>
         </div>
 
-        {blocked ? (
+        {conflicts.confirmed.length > 0 ? (
           <Alert tone="danger" title="Confirmed reservation overlaps this slot">
             Return to the request to review the existing reservation.
           </Alert>
         ) : competingCount > 0 && (
-          <Alert tone="warning" title={`${competingCount} competing ${competingCount === 1 ? 'request' : 'requests'} will be superseded`}>
-            The other organizers will receive rescheduling guidance. Their decision history will remain available.
-          </Alert>
+          <>
+            <Alert tone="warning" title={`${competingCount} competing ${competingCount === 1 ? 'request' : 'requests'} will be superseded`}>
+              The other organizers will receive rescheduling guidance. Their decision history will remain available.
+            </Alert>
+            <ul aria-label="Competing requests">
+              {conflicts.pending.map((conflict) => (
+                <li key={conflict.requestId}>
+                  {conflict.title} · {formatDate(conflict.startTime)} · {formatTimeRange(conflict.startTime, conflict.endTime)}
+                </li>
+              ))}
+            </ul>
+          </>
         )}
 
         <TextareaField
@@ -89,15 +102,15 @@ export function AllotmentConfirmDialog({
               : 'Add any operational guidance or remarks for this reservation…'
           }
           rows={3}
-          error={error || undefined}
         />
+        {error && <Alert tone="danger" title="Could not allot venue">{error}</Alert>}
 
         <div className="dialog-actions">
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>
             Cancel
           </Button>
           <Button type="submit" variant="primary" disabled={submitting || blocked} loading={submitting}>
-            {submitting ? 'Committing allotment…' : 'Confirm & Allot Venue'}
+            {action}
           </Button>
         </div>
       </form>

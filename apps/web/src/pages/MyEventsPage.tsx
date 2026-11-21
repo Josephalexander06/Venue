@@ -30,7 +30,6 @@ import {
   useToast,
 } from '../components/ui';
 import { EventStatusBadge, RequestStatusBadge } from '../components/booking';
-import { RequestStatusDialog } from '../components/RequestStatusDialog';
 import { EventTeamDialog } from '../components/EventTeamDialog';
 
 type Filter = 'all' | 'open' | 'confirmed' | 'closed';
@@ -107,7 +106,6 @@ export function MyEventsPage() {
     params.get('create') === '1' ? { title: '', description: '', attendance: '' } : null,
   );
   const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
-  const [statusRequestId, setStatusRequestId] = useState<string | null>(null);
   const [teamTarget, setTeamTarget] = useState<EventSummary | null>(null);
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
@@ -274,7 +272,6 @@ export function MyEventsPage() {
               isAdmin={isAdmin}
               onEdit={() => openEdit(event)}
               onManageTeam={() => setTeamTarget(event)}
-              onTrackStatus={(req) => setStatusRequestId(req.id)}
               onCancelEvent={() =>
                 setCancelTarget({ type: 'event', id: event.id, label: event.title })
               }
@@ -401,13 +398,6 @@ export function MyEventsPage() {
         )}
       </Dialog>
 
-      {statusRequestId && (
-        <RequestStatusDialog
-          requestId={statusRequestId}
-          onClose={() => setStatusRequestId(null)}
-        />
-      )}
-
       {teamTarget && (
         <EventTeamDialog
           event={teamTarget}
@@ -427,7 +417,6 @@ function EventCard({
   isAdmin,
   onEdit,
   onManageTeam,
-  onTrackStatus,
   onCancelEvent,
   onCancelRequest,
 }: {
@@ -439,7 +428,6 @@ function EventCard({
   isAdmin: boolean;
   onEdit: () => void;
   onManageTeam: () => void;
-  onTrackStatus: (request: RequestView) => void;
   onCancelEvent: () => void;
   onCancelRequest: (request: RequestView) => void;
 }) {
@@ -557,15 +545,8 @@ function EventCard({
                 {requestGuidance(request) && <span>{requestGuidance(request)}</span>}
               </span>
               <span className="booking-row-actions">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onTrackStatus(request)}
-                >
-                  Track progress
-                </Button>
-                <Link to={`/venues/${request.venue.id}`} className="btn btn-ghost btn-sm">
-                  View calendar
+                <Link to={`/my-events/requests/${request.id}`} className="btn btn-ghost btn-sm">
+                  {request.status === 'CONFIRMED' ? 'View confirmation' : 'Track request'}
                 </Link>
                 {canManageRequest(request) && OPEN_STATUSES.has(request.status) && (
                   <Link

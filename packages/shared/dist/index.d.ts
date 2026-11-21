@@ -258,6 +258,8 @@ export declare const allotmentConfirmSchema: z.ZodObject<{
     conflictResolutionPolicy: z.ZodDefault<z.ZodEnum<{
         AUTO_REJECT_CONFLICTS: "AUTO_REJECT_CONFLICTS";
     }>>;
+    expectedUpdatedAt: z.ZodOptional<z.ZodISODateTime>;
+    reviewedCompetingRequestIds: z.ZodOptional<z.ZodArray<z.ZodString>>;
 }, z.core.$strip>;
 export type AllotmentConfirmInput = z.infer<typeof allotmentConfirmSchema>;
 export declare const allotmentCancelSchema: z.ZodObject<{

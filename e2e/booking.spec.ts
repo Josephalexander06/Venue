@@ -73,6 +73,10 @@ test('venue search checks the selected date and carries the slot into the reques
   await page.getByLabel('End time').fill('11:45');
   await page.getByLabel('Guests').fill('121');
   await page.getByRole('button', { name: 'Check availability' }).click();
+  await page.getByRole('searchbox', { name: 'Building' }).fill('Central');
+  await page.getByRole('searchbox', { name: 'Facility' }).fill('whiteboard');
+  await expect(page.getByRole('heading', { name: 'No venues match these filters' })).toBeVisible();
+  await page.getByRole('searchbox', { name: 'Facility' }).fill('stage');
   await expect(page.getByRole('list', { name: 'Matching venues' }).getByRole('article')).toHaveCount(1);
   await page.getByRole('link', { name: 'Review this slot for Main Auditorium' }).click();
   await expect(page.getByLabel('Date', { exact: true })).toHaveValue(date);
@@ -202,9 +206,17 @@ test('registration, approval, booking, endorsement and final allotment journey',
   await expect(
     page.getByText(/No conflicts found\.|overlapping pending request/),
   ).toBeVisible();
+  const summary = page.getByRole('region', { name: 'Booking summary' });
+  await expect(summary.getByText('Faculty coordinator endorsement')).toBeVisible();
+  await expect(summary.getByText(`${firstName} ${studentLastName}`)).toBeVisible();
   await page.getByRole('button', { name: 'Submit booking request' }).click();
 
-  await expect(page).toHaveURL(/\/my-events\?highlight=/);
+  await expect(page).toHaveURL(/\/my-events\/requests\/[\da-f-]+$/);
+  const requestId = new URL(page.url()).pathname.split('/').at(-1);
+  await expect(page.getByRole('heading', { name: 'Booking request submitted' })).toBeVisible();
+  await expect(page.getByText(requestId!, { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Approval history' })).toBeVisible();
+  await page.getByRole('link', { name: 'Manage in My events' }).click();
   await expect(page.getByRole('heading', { name: 'My events' })).toBeVisible();
   await expect(page.getByRole('heading', { name: title, exact: true })).toHaveCount(1);
   const pendingEventCard = page.locator(`#event-${event.id}`);
@@ -225,6 +237,7 @@ test('registration, approval, booking, endorsement and final allotment journey',
   const facultyCard = page.getByRole('row').filter({ hasText: title });
   await expect(facultyCard).toBeVisible();
   await facultyCard.getByRole('link', { name: 'Review & decide' }).click();
+  await expect(page.getByRole('button', { name: 'Approve & Allot Venue' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Record decision' }).first().click();
   await page.getByRole('button', { name: 'Approve stage' }).click();
   await expect(page.getByRole('dialog')).toBeHidden();
@@ -232,6 +245,23 @@ test('registration, approval, booking, endorsement and final allotment journey',
   // Administrator completes the HOD step, the final approval step and the allotment.
   await context.clearCookies();
   await loginAsAdmin(page);
+  const origin = new URL(page.url()).origin;
+  const csrfToken = (await context.cookies(origin)).find((cookie) => cookie.name === 'venue_csrf')?.value;
+  const headers = { origin, 'x-csrf-token': csrfToken! };
+  const detailResponse = await page.request.get(`/api/v1/venue-requests/${requestId}`);
+  expect(detailResponse.ok()).toBe(true);
+  const { request } = await detailResponse.json();
+  const competingTitle = `Competing booking ${stamp}`;
+  const eventResponse = await page.request.post('/api/v1/events', {
+    headers, data: { title: competingTitle, expectedAttendance: 25 },
+  });
+  expect(eventResponse.ok()).toBe(true);
+  const competingEvent = (await eventResponse.json()).event;
+  const competingRequest = await page.request.post('/api/v1/venue-requests', {
+    headers,
+    data: { eventId: competingEvent.id, venueId: request.venue.id, startTime: request.startTime, endTime: request.endTime },
+  });
+  expect(competingRequest.status()).toBe(201);
   await page.goto('/approvals');
   const queueSearch = page.getByRole('searchbox', { name: 'Search event, venue or department' });
   await queueSearch.fill('unique-title-with-no-matches');
@@ -246,24 +276,24 @@ test('registration, approval, booking, endorsement and final allotment journey',
   await page.getByRole('button', { name: 'Approve stage' }).click();
   await expect(page.getByText(/Venue allotment \(Administrator/)).toBeVisible();
 
-  await page.getByRole('button', { name: 'Record decision' }).first().click();
-  await page.getByRole('button', { name: 'Approve stage' }).click();
-  await expect(page.getByText('Ready for final venue allotment')).toBeVisible();
-
-  await page.getByRole('link', { name: 'Back to inbox' }).click();
-  await page.getByRole('button', { name: /Ready to allot/ }).click();
-  await page.getByRole('row').filter({ hasText: title }).getByRole('link', { name: /Review & allot/ }).click();
-
-  await page.getByRole('button', { name: 'Confirm & Allot Venue' }).first().click();
-  await page.getByLabel('Administrative reason').fill('Approved by administrator for E2E verification.');
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: 'Confirm & Allot Venue' })
-    .click();
+  await page.getByRole('button', { name: 'Approve & Allot Venue' }).click();
+  const finalDialog = page.getByRole('dialog', { name: 'Approve & Allot Venue' });
+  await expect(finalDialog.getByRole('list', { name: 'Competing requests' })).toContainText(competingTitle);
+  await expect(finalDialog.getByText('1 competing request will be superseded')).toBeVisible();
+  await expect(finalDialog.getByLabel('Administrative reason')).toHaveCount(0);
+  await finalDialog.getByRole('button', { name: 'Approve & Allot Venue' }).click();
   await expect(page.getByRole('dialog')).toBeHidden();
   await expect(page.getByText('Confirmed Venue Reservation')).toBeVisible();
 
   await page.goto(`/venues?date=${futureDate()}&start=10%3A00&end=11%3A00`);
+  const hideBooked = page.getByRole('checkbox', { name: 'Hide fully booked venues' });
+  await hideBooked.click();
+  await expect(hideBooked).toBeChecked();
+  const matchingVenues = page.getByRole('list', { name: 'Matching venues' });
+  await expect(matchingVenues).toBeVisible();
+  await expect(matchingVenues.getByRole('heading', { name: 'Main Auditorium' })).toHaveCount(0);
+  await hideBooked.click();
+  await expect(hideBooked).not.toBeChecked();
   await page.getByRole('link', { name: 'Find another time for Main Auditorium' }).click();
   await expect(page.getByText('This slot is already confirmed.')).toBeVisible();
   await page.getByRole('button', { name: /Check 13:00/ }).click();
@@ -276,6 +306,12 @@ test('registration, approval, booking, endorsement and final allotment journey',
   await page.goto('/my-events');
   const eventCard = page.locator('.event-card', { hasText: title });
   await expect(eventCard.getByText('Confirmed. The venue is reserved for this event.')).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await eventCard.getByRole('link', { name: 'View confirmation' }).click();
+  await expect(page.getByRole('heading', { name: 'Booking confirmed' })).toBeVisible();
+  await expect(page.getByText('Reserved window', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
+  await page.getByRole('link', { name: 'Manage in My events' }).click();
   await expect(eventCard.getByRole('button', { name: /^Cancel/ })).toHaveCount(1);
   await eventCard.getByRole('button', { name: 'Cancel booking' }).click();
   await page

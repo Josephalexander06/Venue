@@ -179,9 +179,11 @@ export interface RequestDetailView {
   allotment?: AllotmentView | null;
   permissions: {
     canDecide: boolean;
+    canApproveAndAllot: boolean;
     canEdit: boolean;
     canCancel: boolean;
     canAllot: boolean;
+    requiresAllotmentRemarks: boolean;
     canCancelAllotment: boolean;
   };
 }
@@ -554,9 +556,13 @@ export async function getRequestView(
     allotment,
     permissions: {
       canDecide,
+      canApproveAndAllot: Boolean(canDecide && currentStep &&
+        currentStep.id === finalStep?.id && currentStep.id === steps.at(-1)?.id),
       canEdit: ownerOrAdmin && !closed,
       canCancel: ownerOrAdmin && !closed,
       canAllot,
+      requiresAllotmentRemarks: viewer.isAdmin && (!finalStep ||
+        !eligibleForStep(viewerRoles, finalStep, row.departmentId, row.venueDepartmentId, false)),
       canCancelAllotment,
     },
   };
@@ -606,7 +612,7 @@ async function findConfirmedConflict(
   return conflict ?? null;
 }
 
-async function loadWorkflow(db: DbExecutor, venue: { workflowId: string | null; departmentId: string | null }) {
+export async function loadBookingWorkflow(db: DbExecutor, venue: { workflowId: string | null; departmentId: string | null }) {
   const resolvedId = await resolveWorkflowId(db, venue.workflowId);
   const steps = await loadWorkflowSteps(db, resolvedId);
   if (!venue.departmentId && steps.some((step) => step.scopeType === 'VENUE_DEPARTMENT')) {
@@ -616,7 +622,7 @@ async function loadWorkflow(db: DbExecutor, venue: { workflowId: string | null; 
       'This college-wide venue has a department-scoped approval step. Ask an administrator to update its approval workflow.',
     );
   }
-  return { workflowId: resolvedId, firstStepOrder: steps[0]!.stepOrder };
+  return { workflowId: resolvedId, firstStepOrder: steps[0]!.stepOrder, steps };
 }
 
 export async function createVenueRequest(
@@ -704,7 +710,7 @@ export async function createVenueRequest(
       );
     }
 
-    const workflow = await loadWorkflow(tx, venue);
+    const workflow = await loadBookingWorkflow(tx, venue);
 
     const callerRoles = await loadViewerRoles(tx, viewer.userId);
     const isFacultyOrAbove =
@@ -871,7 +877,7 @@ export async function updateVenueRequest(
 
     const now = new Date();
     if (critical) {
-      const targetWorkflow = await loadWorkflow(tx, venue);
+      const targetWorkflow = await loadBookingWorkflow(tx, venue);
       const restartStepOrder = row.requiresFacultyEndorsement ? 0 : targetWorkflow.firstStepOrder;
 
       await tx

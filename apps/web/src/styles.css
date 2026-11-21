@@ -3082,6 +3082,13 @@ body:has(dialog[open]) {
   width: min(100%, 490px);
 }
 
+.venue-availability-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+}
+
 .venue-results-summary {
   display: flex;
   flex-wrap: wrap;
@@ -5630,6 +5637,23 @@ body:has(dialog[open]) {
 .allotment-review h3,
 .allotment-review dl {
   margin-bottom: 0;
+}
+
+.booking-approval-list {
+  margin: var(--space-2) 0 0;
+  padding-inline-start: var(--space-5);
+  font-size: 14px;
+}
+
+.booking-status-page {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 740px;
+  margin-inline: auto;
+}
+
+.booking-reference {
+  overflow-wrap: anywhere;
 }
 
 /* Phase 5 — Event Collaboration & Faculty Endorsement */

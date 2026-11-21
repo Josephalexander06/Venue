@@ -165,6 +165,33 @@ async function confirmedRequestFor(
 }
 
 describe('venue management', () => {
+  it('combines building, facility and buffered availability filters while retaining pending options', async () => {
+    const session = await studentSession();
+    const booked = await createVenue({ building: 'Library' });
+    const requestable = await createVenue({ building: 'Library Annex' });
+    await createVenue({ building: 'Library', facilities: ['Whiteboard'] });
+    await createVenue({ building: 'Main Block' });
+    await confirmedRequestFor(session, booked.id, '2026-12-03T10:00:00Z', '2026-12-03T11:00:00Z');
+    const event = await createEvent(session);
+    const start = '2026-12-03T11:45:00Z';
+    const end = '2026-12-03T12:30:00Z';
+    const pending = await requestBooking(session, event.json().event.id, requestable.id, start, end);
+    expect(pending.statusCode).toBe(201);
+
+    const headers = mutationHeaders(session);
+    const url = '/api/v1/venues?building=library&facility=projector';
+    const matching = await app.inject({ url, headers });
+    expect(matching.json().total).toBe(2);
+    const available = await app.inject({ url: `${url}&from=${start}&to=${end}`, headers });
+    expect(available.statusCode).toBe(200);
+    expect(available.json()).toMatchObject({ total: 1, venues: [{ id: requestable.id }] });
+    const invalid = await app.inject({ url: `${url}&from=${start}`, headers });
+    expect(invalid.statusCode).toBe(400);
+
+    const preview = await app.inject({ url: `/api/v1/venues/${requestable.id}/approval-preview`, headers });
+    expect(preview.json().steps).toMatchObject([{ requiredRole: 'HOD', scopeType: 'VENUE_DEPARTMENT' }]);
+  });
+
   it('uses the saved event attendance as the minimum venue capacity', async () => {
     const session = await studentSession();
     const small = await createVenue({ capacity: 79 });

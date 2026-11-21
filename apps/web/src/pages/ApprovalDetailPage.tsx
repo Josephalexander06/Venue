@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, CalendarCheck, WarningCircle } from '@phosphor-icons/react';
 import { ROLE_LABELS, WORKFLOW_SCOPE_LABELS } from '@venue/shared';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 import { useAuth, usePageTitle } from '../auth';
 import { formatDate } from '../lib/format';
 import { formatTimeRange } from '../lib/datetime';
@@ -26,7 +26,7 @@ import { CompetitorComparison } from '../components/approvals/CompetitorComparis
 export function ApprovalDetailPage() {
   const { id } = useParams<{ id: string }>();
   usePageTitle('Review booking request');
-  const { isAdmin, isApprover } = useAuth();
+  const { isApprover } = useAuth();
   const queryClient = useQueryClient();
   const returnTo = isApprover ? '/approvals' : '/my-events';
   const { pushToast } = useToast();
@@ -71,7 +71,7 @@ export function ApprovalDetailPage() {
   }
 
   const { request, event, workflow, timeline, decisions, conflicts, permissions, allotment } = detail;
-  const currentStep = timeline.find((s) => s.state === 'CURRENT');
+  const currentStep = timeline.find((s) => s.stepOrder === request.currentStepOrder);
 
   async function refreshBooking() {
     await Promise.all([
@@ -86,9 +86,14 @@ export function ApprovalDetailPage() {
   async function handleConfirmAllotment(remarks: string) {
     if (!id) return;
     try {
-      const res = await api.confirmAllotment({
-        venueRequestId: id,
+      const review = {
         remarks,
+        expectedUpdatedAt: request.updatedAt,
+        reviewedCompetingRequestIds: conflicts.pending.map((conflict) => conflict.requestId),
+      };
+      const res = permissions.canApproveAndAllot ? await api.approveAndAllot(id, review) : await api.confirmAllotment({
+        ...review,
+        venueRequestId: id,
         conflictResolutionPolicy: 'AUTO_REJECT_CONFLICTS',
       });
       pushToast({
@@ -102,11 +107,9 @@ export function ApprovalDetailPage() {
       });
       await refreshBooking();
     } catch (err: unknown) {
-      pushToast({
-        tone: 'danger',
-        title: 'Allotment failed',
-        message: err instanceof Error ? err.message : 'Could not commit allotment.',
-      });
+      if (err instanceof ApiError && ['APPROVAL_STATE_CHANGED', 'COMPETING_REQUESTS_CHANGED', 'SLOT_ALREADY_ALLOTTED'].includes(err.code)) {
+        await requestQuery.refetch();
+      }
       throw err;
     }
   }
@@ -132,6 +135,7 @@ export function ApprovalDetailPage() {
   }
 
   const canDecide = permissions.canDecide && Boolean(currentStep);
+  const canApproveAndAllot = permissions.canApproveAndAllot;
   const confirmed = request.status === 'CONFIRMED';
   const superseded = request.status === 'SUPERSEDED_CONFLICT';
 
@@ -150,11 +154,13 @@ export function ApprovalDetailPage() {
           <>
             <RequestStatusBadge status={request.status} />
             {canDecide && (
-              <Button onClick={() => setShowDecisionDialog(true)}>Record decision</Button>
+              <Button variant={canApproveAndAllot ? 'secondary' : 'primary'} onClick={() => setShowDecisionDialog(true)}>
+                {canApproveAndAllot ? 'Reject or request changes' : 'Record decision'}
+              </Button>
             )}
-            {permissions.canAllot && (
+            {(canApproveAndAllot || permissions.canAllot) && (
               <Button onClick={() => setShowAllotDialog(true)}>
-                <CalendarCheck size={17} aria-hidden="true" /> Confirm &amp; Allot Venue
+                <CalendarCheck size={17} aria-hidden="true" /> {canApproveAndAllot ? 'Approve & Allot Venue' : 'Allot Venue'}
               </Button>
             )}
             {permissions.canCancelAllotment && allotment && (
@@ -278,6 +284,7 @@ export function ApprovalDetailPage() {
         <ApprovalDecisionDialog
           requestId={request.id}
           stepName={currentStep.stepName}
+          allowApproval={!canApproveAndAllot}
           onClose={() => setShowDecisionDialog(false)}
           onSuccess={() => void requestQuery.refetch()}
         />
@@ -289,7 +296,9 @@ export function ApprovalDetailPage() {
           onOpenChange={setShowAllotDialog}
           detail={detail}
           onConfirm={handleConfirmAllotment}
-          isOverride={isAdmin}
+          action={canApproveAndAllot ? 'Approve & Allot Venue' : 'Allot Venue'}
+          unavailable={!canApproveAndAllot && !permissions.canAllot}
+          isOverride={permissions.requiresAllotmentRemarks}
         />
       )}
 

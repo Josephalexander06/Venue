@@ -6,6 +6,7 @@ import { buildApp } from '../src/app.js';
 import { parseEnv } from '../src/env.js';
 import type { Database } from '../src/db/index.js';
 import {
+  approvalDecisions,
   approvalInstances,
   approvalWorkflows,
   auditLogs,
@@ -86,6 +87,19 @@ describe('Phase 4 — Atomic venue allotment & conflict resolution engine', () =
         decision: 'APPROVED',
         comments,
       },
+    });
+  }
+
+  function approveAndAllot(
+    session: TestSession,
+    request: { id: string; updatedAt: string },
+    reviewedCompetingRequestIds: string[] = [],
+  ) {
+    return app.inject({
+      method: 'POST',
+      url: `/api/v1/approvals/${request.id}/approve-and-allot`,
+      headers: mutationHeaders(session),
+      payload: { expectedUpdatedAt: request.updatedAt, reviewedCompetingRequestIds },
     });
   }
 
@@ -222,6 +236,69 @@ describe('Phase 4 — Atomic venue allotment & conflict resolution engine', () =
       },
     };
   }
+
+  it('approves and allots in one action with scoped authorization and an idempotent retry', async () => {
+    const { venues, users } = await setupFixtures();
+    const [owner, hod, wrongHod] = await Promise.all([users.student1, users.hodCs, users.hodMe]
+      .map(({ user, password }) => login(app, user.email, password)));
+    const event = await createEvent(owner!, { title: 'One-action booking', expectedAttendance: 20 });
+    const created = await createBookingRequest(owner!, event.id, venues.deptLab.id,
+      '2026-12-10T10:00:00Z', '2026-12-10T12:00:00Z');
+    expect(created.statusCode).toBe(201);
+    const { request } = created.json();
+
+    expect((await approveAndAllot(wrongHod!, request)).json().code).toBe('ALLOTMENT_FORBIDDEN');
+    expect((await approveAndAllot(owner!, request)).json().code).toBe('SELF_APPROVAL_FORBIDDEN');
+    expect(await db.select().from(approvalDecisions)).toHaveLength(0);
+    expect(await db.select().from(venueAllotments)).toHaveLength(0);
+
+    const response = await approveAndAllot(hod!, request);
+    expect(response.statusCode).toBe(200);
+    const retry = await approveAndAllot(hod!, request);
+    expect(retry.json().allotmentId).toBe(response.json().allotmentId);
+    const detail = await app.inject({ url: `/api/v1/venue-requests/${request.id}`, headers: mutationHeaders(owner!) });
+    expect(detail.json()).toMatchObject({
+      request: { status: 'CONFIRMED' },
+      allotment: { id: response.json().allotmentId, status: 'ACTIVE' },
+      decisions: [{ decision: 'APPROVED', stepOrder: 1 }],
+    });
+    const audits = await db.select({ action: auditLogs.action }).from(auditLogs);
+    expect(audits.filter(({ action }) => ['APPROVAL_APPROVED', 'ALLOTMENT_CONFIRMED'].includes(action)))
+      .toHaveLength(2);
+  });
+
+  it('rolls back unreviewed competition and commits exactly one of two concurrent final decisions', async () => {
+    const { venues, users } = await setupFixtures();
+    const [ownerA, ownerB, hod] = await Promise.all([users.student1, users.student2, users.hodCs]
+      .map(({ user, password }) => login(app, user.email, password)));
+    async function requestFor(session: TestSession, title: string) {
+      const event = await createEvent(session, { title, expectedAttendance: 20 });
+      const result = await createBookingRequest(session, event.id, venues.deptLab.id,
+        '2026-12-11T10:00:00Z', '2026-12-11T12:00:00Z');
+      expect(result.statusCode).toBe(201);
+      return result.json().request;
+    }
+    const a = await requestFor(ownerA!, 'First competing event');
+    const b = await requestFor(ownerB!, 'Second competing event');
+    const unseen = await approveAndAllot(hod!, a);
+    expect(unseen.statusCode).toBe(409);
+    expect(unseen.json().code).toBe('COMPETING_REQUESTS_CHANGED');
+    expect(await db.select().from(approvalDecisions)).toHaveLength(0);
+    expect(await db.select().from(venueAllotments)).toHaveLength(0);
+    const before = await db.select().from(venueRequests);
+    expect(before.map((request) => request.status)).toEqual(['SUBMITTED', 'SUBMITTED']);
+
+    const outcomes = await Promise.all([
+      approveAndAllot(hod!, a, [b.id]),
+      approveAndAllot(hod!, b, [a.id]),
+    ]);
+    expect(outcomes.map((result) => result.statusCode).sort()).toEqual([200, 409]);
+    expect(outcomes.find((result) => result.statusCode === 409)?.json().code).toBe('SLOT_ALREADY_ALLOTTED');
+    expect(await db.select().from(venueAllotments)).toHaveLength(1);
+    expect(await db.select().from(approvalDecisions)).toHaveLength(1);
+    const after = await db.select().from(venueRequests);
+    expect(after.map((request) => request.status).sort()).toEqual(['CONFIRMED', 'SUPERSEDED_CONFLICT']);
+  });
 
   it('1. Single approved request allotment: transitions to CONFIRMED and creates active allotment', async () => {
     const { venues, users } = await setupFixtures();
@@ -830,9 +907,15 @@ describe('Phase 4 — Atomic venue allotment & conflict resolution engine', () =
     const request = reqRes.json().request;
 
     // Step 1: HOD CS approves
+    const earlyFinal = await approveAndAllot(principalSession, request);
+    expect(earlyFinal.statusCode).toBe(409);
+    expect(earlyFinal.json().code).toBe('FINAL_APPROVAL_NOT_READY');
+    expect(await db.select().from(approvalDecisions)).toHaveLength(0);
     const hodStepRes = await approveStep(hodCsSession, request.id);
     expect(hodStepRes.statusCode).toBe(200);
     expect(hodStepRes.json().outcome.status).toBe('IN_REVIEW');
+    expect(hodStepRes.json().permissions.canApproveAndAllot).toBe(false);
+    expect(await db.select().from(venueAllotments)).toHaveLength(0);
 
     // Step 2: Bursar approves
     const bursarStepRes = await approveStep(bursarSession, request.id);

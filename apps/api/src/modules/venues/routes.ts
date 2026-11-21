@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import {
   availabilityQuerySchema,
+  BOOKING_ROLES,
   venueInputSchema,
   venueListQuerySchema,
   venueScheduleQuerySchema,
@@ -11,6 +12,8 @@ import type { Database } from '../../db/index.js';
 import { parseInput } from '../../lib/validation.js';
 import { assertCalendarWindow, parseInstant } from '../../lib/booking.js';
 import { assertEventViewAccess, findEventRow } from '../events/service.js';
+import { effectiveStepScope } from '../approvals/eligibility.js';
+import { loadBookingWorkflow } from '../requests/service.js';
 import {
   archiveVenue,
   checkAvailability,
@@ -22,13 +25,25 @@ import {
 } from './service.js';
 
 const idParamsSchema = z.object({ id: z.string().uuid() });
-const bookingVenueListQuery = venueListQuerySchema.extend({ eventId: z.string().uuid().optional() });
+const bookingVenueListQuery = venueListQuerySchema.extend({
+  eventId: z.string().uuid().optional(),
+  facility: z.string().trim().max(100).optional(),
+  from: availabilityQuerySchema.shape.from.optional(),
+  to: availabilityQuerySchema.shape.to.optional(),
+}).refine(({ from, to }) => Boolean(from) === Boolean(to), {
+  path: ['to'],
+  message: 'Provide both a start and end time to filter by availability.',
+});
 
 const venueRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) => {
   const adminOnly = { preHandler: app.requireRole('ADMINISTRATOR' as const) };
 
   app.get('/venues', { preHandler: app.authenticate }, async (request) => {
-    const { eventId, ...query } = parseInput(bookingVenueListQuery, request.query);
+    const { eventId, from, to, ...query } = parseInput(bookingVenueListQuery, request.query);
+    const availableDuring = from && to
+      ? { from: parseInstant(from, 'start'), to: parseInstant(to, 'end') }
+      : undefined;
+    if (availableDuring) assertCalendarWindow(availableDuring.from, availableDuring.to);
     if (eventId) {
       const event = await findEventRow(db, eventId);
       const user = request.auth!.user;
@@ -38,13 +53,27 @@ const venueRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) =>
       });
       query.minCapacity = Math.max(query.minCapacity ?? 0, event.expectedAttendance);
     }
-    return listVenues(db, { ...query, active: true });
+    return listVenues(db, { ...query, active: true, availableDuring });
   });
 
   app.get('/venues/:id', { preHandler: app.authenticate }, async (request) => {
     const { id } = parseInput(idParamsSchema, request.params);
     const isAdmin = request.auth!.user.roles.some((entry) => entry.role === 'ADMINISTRATOR');
     return { venue: await requireVenue(db, id, isAdmin) };
+  });
+
+  app.get('/venues/:id/approval-preview', { preHandler: app.requireAnyRole(BOOKING_ROLES) }, async (request) => {
+    const { id } = parseInput(idParamsSchema, request.params);
+    const venue = await requireVenue(db, id);
+    const departmentId = venue.department?.id ?? null;
+    const { steps } = await loadBookingWorkflow(db, { workflowId: venue.workflow?.id ?? null, departmentId });
+    return {
+      steps: steps.map((step) => ({
+        stepName: step.stepName,
+        requiredRole: step.requiredRole,
+        scopeType: effectiveStepScope(step, departmentId),
+      })),
+    };
   });
 
   app.get('/venues/:id/calendar', { preHandler: app.authenticate }, async (request) => {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ROLE_LABELS, WORKFLOW_SCOPE_LABELS } from '@venue/shared';
 import {
   ArrowLeft,
   CalendarBlank,
@@ -11,6 +12,7 @@ import {
 } from '@phosphor-icons/react';
 import { api, ApiError, fieldError } from '../lib/api';
 import { useAuth, usePageTitle } from '../auth';
+import { formatDate } from '../lib/format';
 import { useToast, Alert, Button, PageHeader, Skeleton, TextField, TextareaField } from '../components/ui';
 import { BookingDateField } from '../components/BookingDateField';
 import { FacultyCoordinatorField } from '../components/FacultyCoordinatorField';
@@ -38,8 +40,8 @@ export function VenueDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
-  const { user } = useAuth();
-  const isStudent = user?.roles.some((r) => r.role === 'STUDENT');
+  const { user, isApprover } = useAuth();
+  const needsEndorsement = Boolean(user && !isApprover);
 
   const initialSlot = readVenueSlot(searchParams);
   const [selectedDate, setSelectedDate] = useState(() =>
@@ -140,6 +142,19 @@ export function VenueDetailPage() {
     editRequest &&
     ['CANCELLED', 'REJECTED', 'SUPERSEDED_CONFLICT', 'CONFIRMED'].includes(editRequest.status);
   const draftEvent = draftEventQuery.data?.event;
+  const organizerEventId = draftEvent?.creatorId === user?.id ? undefined : draftEvent?.id;
+  const teamQuery = useQuery({
+    queryKey: ['event-team', organizerEventId],
+    queryFn: () => api.eventTeam(organizerEventId!),
+    enabled: Boolean(organizerEventId),
+  });
+  const approvalPreview = useQuery({
+    queryKey: ['venue-approval-preview', id],
+    queryFn: () => api.venueApprovalPreview(id!),
+    enabled: Boolean(id && venue?.isActive && !editing),
+  });
+  const organizer = organizerEventId ? teamQuery.data?.team.creator : user;
+  const eventTitle = (draftEvent?.title ?? title).trim();
   const savedEvent = Boolean(!editing && (draftEventIdParam || draftEventId));
   const hasActiveRequest = Boolean(
     draftEvent?.requests?.some((r) =>
@@ -168,13 +183,14 @@ export function VenueDetailPage() {
     (!editing || editQuery.isSuccess) &&
     (!draftEventIdParam || draftEventQuery.isSuccess) &&
     !startsInPast &&
-    Boolean((draftEvent?.title ?? title).trim().length >= 3) &&
+    eventTitle.length >= 3 &&
     capacityValid &&
     Boolean(slot) &&
     !hasConfirmedConflict &&
     availabilityQuery.isSuccess &&
     !availabilityQuery.isFetching &&
-    (!isStudent || editing || Boolean(facultyCoordinatorId || draftEvent?.facultyCoordinatorId));
+    (editing || (Boolean(approvalPreview.data && organizer) &&
+      (!needsEndorsement || Boolean(facultyCoordinatorId || draftEvent?.facultyCoordinatorId))));
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -197,7 +213,7 @@ export function VenueDetailPage() {
       const targetDraftEvent = draftEvent || (draftEventId ? { id: draftEventId, facultyCoordinatorId: null } : null);
       if (targetDraftEvent) {
         if (
-          isStudent &&
+          needsEndorsement &&
           facultyCoordinatorId &&
           targetDraftEvent.facultyCoordinatorId !== facultyCoordinatorId
         ) {
@@ -234,13 +250,13 @@ export function VenueDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['my-events'] }),
         queryClient.invalidateQueries({ queryKey: ['request'] }),
       ]);
-      pushToast({
-        tone: 'success',
-        title: editing ? 'Booking request updated' : 'Booking request submitted',
-        message: 'Pending approval does not reserve the venue yet.',
-      });
+      queryClient.setQueryData(['request', result.request.id], result);
+      if (editing) pushToast({ tone: 'success', title: 'Booking request updated' });
       setDraftEventId(null);
-      navigate(`/my-events?highlight=${result.request.id}`);
+      navigate(`/my-events/requests/${result.request.id}`, {
+        state: { submitted: !editing },
+        replace: true,
+      });
     },
   });
 
@@ -569,7 +585,7 @@ export function VenueDetailPage() {
                 </>
               )}
 
-              {isStudent && !editing && !draftEvent?.facultyCoordinatorId && (
+              {needsEndorsement && !editing && !draftEvent?.facultyCoordinatorId && (
                 <div className="faculty-endorsement-banner">
                   <FacultyCoordinatorField
                     label="Designated faculty coordinator"
@@ -580,6 +596,39 @@ export function VenueDetailPage() {
                     hint="Your coordinator endorses the request before it moves to venue approvals."
                   />
                 </div>
+              )}
+
+              {!editing && slot && eventTitle.length >= 3 && (
+                <section className="allotment-review" aria-labelledby="booking-summary-title">
+                  <h3 id="booking-summary-title">Booking summary</h3>
+                  <dl>
+                    <div><dt>Event</dt><dd>{eventTitle}</dd></div>
+                    <div><dt>Venue</dt><dd>{venue.name}</dd></div>
+                    <div><dt>Organizer</dt><dd>{organizer ? `${organizer.firstName} ${organizer.lastName}` : 'Loading…'}</dd></div>
+                    <div><dt>Date and time</dt><dd>{formatDate(slot.from)} · {formatTimeRange(slot.from, slot.to)}</dd></div>
+                  </dl>
+                  <h4>Required approvals</h4>
+                  {approvalPreview.data ? (
+                    <ol className="booking-approval-list">
+                      {needsEndorsement && <li>Faculty coordinator endorsement</li>}
+                      {approvalPreview.data.steps.map((step, index) => (
+                        <li key={index}>
+                          {ROLE_LABELS[step.requiredRole]} · {step.scopeType === 'VENUE_DEPARTMENT'
+                            ? venue.department?.name : WORKFLOW_SCOPE_LABELS[step.scopeType]}
+                        </li>
+                      ))}
+                    </ol>
+                  ) : !approvalPreview.isError && <p>Loading approval steps…</p>}
+                </section>
+              )}
+              {!editing && (approvalPreview.isError || teamQuery.isError) && (
+                <Alert tone="danger" title="Could not load booking details">
+                  {approvalPreview.error instanceof ApiError && <p>{approvalPreview.error.message}</p>}
+                  <button type="button" className="inline-link" onClick={() => {
+                    if (approvalPreview.isError) void approvalPreview.refetch();
+                    if (teamQuery.isError) void teamQuery.refetch();
+                  }}>Try again</button>
+                </Alert>
               )}
 
               {submit.isError && !draftEventId && (

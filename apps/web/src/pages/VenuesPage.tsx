@@ -32,11 +32,16 @@ export function VenuesPage() {
   const eventId = params.get('eventId');
   const search = params.get('q') ?? '';
   const departmentId = params.get('department') ?? '';
+  const building = params.get('building') ?? '';
+  const facility = params.get('facility') ?? '';
   const guestFilter = eventId ? null : readGuestCount(params);
   const proposedSlot = readVenueSlot(params);
   const checkedSlot = proposedSlot && proposedSlot.from >= new Date() ? proposedSlot : null;
+  const availableDuring = params.get('available') === '1' ? checkedSlot : null;
 
   const deferredSearch = useDeferredValue(search.trim());
+  const deferredBuilding = useDeferredValue(building.trim());
+  const deferredFacility = useDeferredValue(facility.trim());
   const [date, setDate] = useState(() => checkedSlot?.date ?? dateInputValue(addDays(new Date(), 1)));
   const [start, setStart] = useState(checkedSlot?.start ?? '10:00');
   const [end, setEnd] = useState(checkedSlot?.end ?? '12:00');
@@ -59,13 +64,21 @@ export function VenuesPage() {
   const minCapacity = savedEvent?.expectedAttendance ?? guestFilter;
 
   const venues = useQuery({
-    queryKey: ['venues', { eventId, search: deferredSearch, departmentId, minCapacity, offset }],
+    queryKey: ['venues', {
+      eventId, search: deferredSearch, departmentId, minCapacity, offset,
+      building: deferredBuilding, facility: deferredFacility,
+      from: availableDuring?.from, to: availableDuring?.to,
+    }],
     enabled: !eventId || Boolean(savedEvent),
     queryFn: () =>
       api.venues({
         active: true,
         eventId: eventId ?? undefined,
         search: deferredSearch || undefined,
+        building: deferredBuilding || undefined,
+        facility: deferredFacility || undefined,
+        from: availableDuring?.from.toISOString(),
+        to: availableDuring?.to.toISOString(),
         departmentId: departmentId || undefined,
         minCapacity: minCapacity ?? undefined,
         limit: PAGE_SIZE,
@@ -89,7 +102,7 @@ export function VenuesPage() {
     cards.sort((left, right) => AVAILABILITY_ORDER[left.state!] - AVAILABILITY_ORDER[right.state!]);
   }
   const canRequestCount = cards.filter(({ state }) => state === 'open' || state === 'competing').length;
-  const hasFilters = Boolean(search || departmentId || guestFilter);
+  const hasFilters = Boolean(search || departmentId || guestFilter || building || facility || availableDuring);
 
   function changeFilter(name: string, value: string) {
     setParams((current) => {
@@ -104,7 +117,7 @@ export function VenuesPage() {
   function clearFilters() {
     setParams((current) => {
       const next = new URLSearchParams(current);
-      for (const filter of ['q', 'department', 'guests']) next.delete(filter);
+      for (const filter of ['q', 'department', 'guests', 'building', 'facility', 'available']) next.delete(filter);
       return next;
     }, { replace: true });
     setGuests('');
@@ -135,6 +148,7 @@ export function VenuesPage() {
     }, { replace: true });
     if (offset === 0 && (eventId || guests === String(guestFilter ?? '')) &&
       checkedSlot?.from.getTime() === slot.from.getTime() && checkedSlot.to.getTime() === slot.to.getTime()) {
+      if (availableDuring) void venues.refetch();
       for (const query of availability) void query.refetch();
     }
   }
@@ -181,6 +195,13 @@ export function VenuesPage() {
                 : savedEvent ? `Showing spaces for at least ${savedEvent.expectedAttendance} people.`
                   : 'Browse all spaces accepting requests.'}
             </p>
+            {checkedSlot && (
+              <label className="venue-availability-filter">
+                <input type="checkbox" checked={Boolean(availableDuring)}
+                  onChange={(event) => changeFilter('available', event.target.checked ? '1' : '')} />
+                Hide fully booked venues
+              </label>
+            )}
           </div>
           <div className="venue-catalog-filters" aria-label="Venue filters">
             <TextField label="Search venues" name="venue-search" type="search" value={search}
@@ -198,6 +219,12 @@ export function VenuesPage() {
                 <option key={department.id} value={department.id}>{department.name}</option>
               ))}
             </SelectField>
+            <TextField label="Building" name="venue-building" type="search" value={building}
+              onChange={(event) => changeFilter('building', event.target.value)} maxLength={100}
+              placeholder="Any building" />
+            <TextField label="Facility" name="venue-facility" type="search" value={facility}
+              onChange={(event) => changeFilter('facility', event.target.value)} maxLength={100}
+              placeholder="e.g. Projector" />
           </div>
         </div>
 
@@ -221,7 +248,7 @@ export function VenuesPage() {
               title={hasFilters ? 'No venues match these filters'
                 : savedEvent ? 'No venues fit this event' : 'No venues accepting requests'}
               description={hasFilters
-                ? savedEvent ? 'Try a different search or department.' : 'Try a different search, department or guest count.'
+                ? 'Try a different date or clear the filters.'
                 : savedEvent ? `No available venue can hold ${savedEvent.expectedAttendance} people.`
                   : 'Check the venue catalog again later.'}
               action={hasFilters && <Button variant="secondary" onClick={clearFilters}>Clear filters</Button>}

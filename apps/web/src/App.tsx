@@ -32,6 +32,9 @@ const VenueDetailPage = lazy(() =>
 const MyEventsPage = lazy(() =>
   import('./pages/MyEventsPage').then((module) => ({ default: module.MyEventsPage })),
 );
+const BookingStatusPage = lazy(() =>
+  import('./pages/BookingStatusPage').then((module) => ({ default: module.BookingStatusPage })),
+);
 const ApprovalInboxPage = lazy(() =>
   import('./pages/ApprovalInboxPage').then((module) => ({ default: module.ApprovalInboxPage })),
 );
@@ -94,6 +97,7 @@ export function App() {
             <Route path="/venues" element={<VenuesPage />} />
             <Route path="/venues/:id" element={<VenueDetailPage />} />
             <Route path="/my-events" element={<MyEventsPage />} />
+            <Route path="/my-events/requests/:id" element={<BookingStatusPage />} />
             <Route path="/account" element={<AccountPage />} />
             <Route path="/approvals/:id" element={<ApprovalDetailPage />} />
             <Route element={<RequireApprover />}>

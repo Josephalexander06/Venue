@@ -8,6 +8,7 @@ import { Alert, Button, Dialog, TextareaField, useToast } from '../ui';
 interface ApprovalDecisionDialogProps {
   requestId: string;
   stepName: string;
+  allowApproval: boolean;
   onClose: () => void;
   onSuccess?: () => void;
 }
@@ -15,10 +16,11 @@ interface ApprovalDecisionDialogProps {
 export function ApprovalDecisionDialog({
   requestId,
   stepName,
+  allowApproval,
   onClose,
   onSuccess,
 }: ApprovalDecisionDialogProps) {
-  const [decision, setDecision] = useState<ApprovalDecision>('APPROVED');
+  const [decision, setDecision] = useState<ApprovalDecision>(allowApproval ? 'APPROVED' : 'CHANGES_REQUESTED');
   const [comments, setComments] = useState('');
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
@@ -101,7 +103,7 @@ export function ApprovalDecisionDialog({
         <fieldset className="decision-options">
           <legend className="decision-legend">Your decision</legend>
 
-          <label
+          {allowApproval && <label
             htmlFor="decision-approved"
             className={`decision-option ${decision === 'APPROVED' ? 'is-selected is-approved' : ''}`}
             aria-label="Approve"
@@ -122,7 +124,7 @@ export function ApprovalDecisionDialog({
                 Advance the request to its next stage.
               </span>
             </span>
-          </label>
+          </label>}
 
           <label
             htmlFor="decision-changes"

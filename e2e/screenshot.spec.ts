@@ -131,8 +131,8 @@ test('capture rendered workspaces with booking data', async ({ browser, baseURL 
     await capture(adminPage, 'desktop-approvals', '/approvals', 'Approval inbox', '.queue-table tbody tr');
     await capture(adminPage, 'desktop-approval-detail', detailPath, 'Robotics project showcase', '.comparison-grid');
     await adminPage.goto(`${origin}${readyPath}`);
-    await adminPage.getByRole('button', { name: 'Confirm & Allot Venue' }).click();
-    await expect(adminPage.getByRole('dialog', { name: 'Confirm venue allotment' })).toBeVisible();
+    await adminPage.getByRole('button', { name: 'Allot Venue' }).click();
+    await expect(adminPage.getByRole('dialog', { name: 'Allot Venue' })).toBeVisible();
     await adminPage.screenshot({ path: testInfo.outputPath('desktop-allotment.png'), animations: 'disabled' });
 
     const approvalStages = [

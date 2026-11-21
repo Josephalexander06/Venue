@@ -109,6 +109,8 @@ function mapVenue(row: VenueRow): VenueView {
 interface ListVenueFilters {
   search?: string;
   building?: string;
+  facility?: string;
+  availableDuring?: { from: Date; to: Date };
   departmentId?: string;
   minCapacity?: number;
   active?: boolean;
@@ -122,6 +124,24 @@ export async function listVenues(db: Database, filters: ListVenueFilters) {
   if (filters.departmentId) conditions.push(eq(venues.departmentId, filters.departmentId));
   if (filters.minCapacity) conditions.push(gte(venues.capacity, filters.minCapacity));
   if (filters.building) conditions.push(ilike(venues.building, `%${filters.building}%`));
+  if (filters.facility) {
+    conditions.push(sql`exists (
+      select 1 from jsonb_array_elements_text(${venues.facilities}) as facility(name)
+      where facility.name ilike ${`%${filters.facility}%`}
+    )`);
+  }
+  if (filters.availableDuring) {
+    const { from, to } = filters.availableDuring;
+    conditions.push(sql`not exists (
+      select 1 from ${venueAllotments}
+      where ${venueAllotments.venueId} = ${venues.id}
+        and ${venueAllotments.status} = 'ACTIVE'
+        and ${venueAllotments.reservedRange} && tstzrange(
+          ${from}::timestamptz - make_interval(mins => ${venues.setupBufferMins}),
+          ${to}::timestamptz + make_interval(mins => ${venues.teardownBufferMins}), '[)'
+        )
+    )`);
+  }
   if (filters.search) {
     const pattern = `%${filters.search}%`;
     const search = or(

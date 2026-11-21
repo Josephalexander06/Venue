@@ -2,14 +2,18 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import {
   APPROVER_ROLES,
+  allotmentConfirmSchema,
   approvalDecisionInputSchema,
   approvalInboxQuerySchema,
 } from '@venue/shared';
 import type { Database } from '../../db/index.js';
 import { parseInput } from '../../lib/validation.js';
-import { decideRequest, getApprovalDetail, listApprovalInbox } from './service.js';
+import { approveAndAllot, decideRequest, getApprovalDetail, listApprovalInbox } from './service.js';
 
 const idParamsSchema = z.object({ id: z.string().uuid() });
+const approveAndAllotSchema = allotmentConfirmSchema
+  .pick({ remarks: true, expectedUpdatedAt: true, reviewedCompetingRequestIds: true })
+  .required({ expectedUpdatedAt: true, reviewedCompetingRequestIds: true });
 
 function viewerFrom(request: { auth?: { user: { id: string; roles: { role: string }[] } } }) {
   return {
@@ -46,6 +50,12 @@ const approvalRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db })
     const { id } = parseInput(idParamsSchema, request.params);
     const input = parseInput(approvalDecisionInputSchema, request.body);
     return decideRequest(db, id, viewerFrom(request), input, contextFrom(request));
+  });
+
+  app.post('/:id/approve-and-allot', approverOnly, async (request) => {
+    const { id } = parseInput(idParamsSchema, request.params);
+    const input = parseInput(approveAndAllotSchema, request.body);
+    return approveAndAllot(db, id, viewerFrom(request), input, contextFrom(request));
   });
 };
 

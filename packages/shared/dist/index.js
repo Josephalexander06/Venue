@@ -254,6 +254,8 @@ export const allotmentConfirmSchema = z.object({
     venueRequestId: z.string().uuid(),
     remarks: z.string().trim().max(1000).optional().or(z.literal('')),
     conflictResolutionPolicy: z.enum(ALLOTMENT_POLICIES).default('AUTO_REJECT_CONFLICTS'),
+    expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
+    reviewedCompetingRequestIds: z.array(z.string().uuid()).optional(),
 });
 export const allotmentCancelSchema = z.object({
     reason: z.string().trim().min(3, 'Provide a cancellation reason (at least 3 characters).').max(1000),

@@ -73,6 +73,9 @@ export interface VenueListParams {
   eventId?: string;
   search?: string;
   building?: string;
+  facility?: string;
+  from?: string;
+  to?: string;
   departmentId?: string;
   minCapacity?: number;
   active?: boolean;
@@ -276,6 +279,8 @@ export interface AllotmentConfirmInput {
   venueRequestId: string;
   remarks?: string;
   conflictResolutionPolicy?: 'AUTO_REJECT_CONFLICTS';
+  expectedUpdatedAt?: string;
+  reviewedCompetingRequestIds?: string[];
 }
 
 export interface AllotmentConfirmResult {
@@ -333,9 +338,11 @@ export interface RequestDetailView {
   allotment?: AllotmentView | null;
   permissions: {
     canDecide: boolean;
+    canApproveAndAllot: boolean;
     canEdit: boolean;
     canCancel: boolean;
     canAllot: boolean;
+    requiresAllotmentRemarks: boolean;
     canCancelAllotment: boolean;
   };
 }
@@ -468,6 +475,11 @@ export const api = {
     if (params.eventId) query.set('eventId', params.eventId);
     if (params.search) query.set('search', params.search);
     if (params.building) query.set('building', params.building);
+    if (params.facility) query.set('facility', params.facility);
+    if (params.from && params.to) {
+      query.set('from', params.from);
+      query.set('to', params.to);
+    }
     if (params.departmentId) query.set('departmentId', params.departmentId);
     if (params.minCapacity) query.set('minCapacity', String(params.minCapacity));
     if (params.active !== undefined) query.set('active', String(params.active));
@@ -490,6 +502,12 @@ export const api = {
 
   venue(id: string) {
     return request<{ venue: Venue }>(`/venues/${id}`);
+  },
+
+  venueApprovalPreview(id: string) {
+    return request<{ steps: Pick<WorkflowStepView, 'stepName' | 'requiredRole' | 'scopeType'>[] }>(
+      `/venues/${id}/approval-preview`,
+    );
   },
 
   venueCalendar(id: string, from: string, to: string) {
@@ -665,6 +683,17 @@ export const api = {
 
   confirmAllotment(input: AllotmentConfirmInput) {
     return request<AllotmentConfirmResult>('/allotments/confirm', {
+      method: 'POST',
+      body: jsonBody(input),
+    });
+  },
+
+  approveAndAllot(id: string, input: {
+    remarks: string;
+    expectedUpdatedAt: string;
+    reviewedCompetingRequestIds: string[];
+  }) {
+    return request<AllotmentConfirmResult>(`/approvals/${id}/approve-and-allot`, {
       method: 'POST',
       body: jsonBody(input),
     });
