@@ -171,7 +171,17 @@ export function VenueDetailPage() {
     editRequest &&
     ['CANCELLED', 'REJECTED', 'SUPERSEDED_CONFLICT', 'CONFIRMED'].includes(editRequest.status);
   const draftEvent = draftEventQuery.data?.event;
-  const draftEventBlocked = Boolean(draftEvent && draftEvent.status !== 'DRAFT');
+  const hasActiveRequest = Boolean(
+    draftEvent?.requests?.some((r) =>
+      ['SUBMITTED', 'IN_REVIEW', 'APPROVED_PENDING_ALLOTMENT', 'CONFIRMED'].includes(r.status),
+    ),
+  );
+  const draftEventBlocked = Boolean(
+    draftEvent &&
+      (draftEvent.status === 'CANCELLED' ||
+        draftEvent.status === 'COMPLETED' ||
+        hasActiveRequest),
+  );
 
   const capacity = Number(attendance);
   const capacityValid = venue ? capacity >= 1 && capacity <= venue.capacity : false;

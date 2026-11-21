@@ -730,4 +730,100 @@ describe('Phase 3 — Configurable approval workflows and lifecycle', () => {
     expect(updateWf.statusCode).toBe(200);
     expect(updateWf.json().workflow.name).toBe('Executive Principal Fast-Track Updated');
   });
+
+  it('supports repeated CHANGES_REQUESTED review cycles without duplicate-decision errors', async () => {
+    const { venues, users } = await setupFixtures();
+    const studentSession = await login(app, users.student.user.email, users.student.password);
+    const hodCsSession = await login(app, users.hodCs.user.email, users.hodCs.password);
+
+    const event = await createEvent(studentSession, {
+      title: 'Iterative Review Event',
+      expectedAttendance: 100,
+    });
+    const createRes = await createBookingRequest(
+      studentSession,
+      event.id,
+      venues.auditorium.id,
+      '2026-12-30T10:00:00Z',
+      '2026-12-30T14:00:00Z',
+    );
+    expect(createRes.statusCode).toBe(201);
+    const request = createRes.json().request;
+
+    // First cycle: HOD requests changes
+    const firstChangeRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/approvals/${request.id}/decision`,
+      headers: mutationHeaders(hodCsSession),
+      payload: {
+        decision: 'CHANGES_REQUESTED',
+        comments: 'Please update description to include catering requirements.',
+      },
+    });
+    expect(firstChangeRes.statusCode).toBe(200);
+    expect(firstChangeRes.json().outcome.status).toBe('SUBMITTED');
+
+    // Organizer makes non-critical update (description)
+    const updateRes1 = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/venue-requests/${request.id}`,
+      headers: mutationHeaders(studentSession),
+      payload: {
+        event: {
+          description: 'Updated with catering vendor details.',
+        },
+      },
+    });
+    expect(updateRes1.statusCode).toBe(200);
+
+    // Second cycle: HOD reviews again and requests additional changes
+    const secondChangeRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/approvals/${request.id}/decision`,
+      headers: mutationHeaders(hodCsSession),
+      payload: {
+        decision: 'CHANGES_REQUESTED',
+        comments: 'Please also specify AV equipment needs.',
+      },
+    });
+    expect(secondChangeRes.statusCode).toBe(200);
+    expect(secondChangeRes.json().outcome.status).toBe('SUBMITTED');
+
+    // Organizer updates again
+    const updateRes2 = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/venue-requests/${request.id}`,
+      headers: mutationHeaders(studentSession),
+      payload: {
+        event: {
+          description: 'Updated with catering vendor details and projector/mic AV setup.',
+        },
+      },
+    });
+    expect(updateRes2.statusCode).toBe(200);
+
+    // HOD is satisfied and approves
+    const approveRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/approvals/${request.id}/decision`,
+      headers: mutationHeaders(hodCsSession),
+      payload: {
+        decision: 'APPROVED',
+        comments: 'Looks good now. Approved.',
+      },
+    });
+    expect(approveRes.statusCode).toBe(200);
+
+    // Duplicate APPROVED decision on the same step is still properly rejected
+    const dupApproveRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/approvals/${request.id}/decision`,
+      headers: mutationHeaders(hodCsSession),
+      payload: {
+        decision: 'APPROVED',
+      },
+    });
+    // Request has advanced or duplicate decision prevented
+    expect([409, 403]).toContain(dupApproveRes.statusCode);
+  });
 });

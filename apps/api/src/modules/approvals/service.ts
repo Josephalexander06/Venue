@@ -10,11 +10,13 @@ import {
   approvalDecisions,
   approvalInstances,
   departments,
+  eventOrganizers,
   events,
   venueRequests,
   venues,
   workflowSteps,
 } from '../../db/schema.js';
+import { isEventCollaborator } from '../events/service.js';
 import { writeAudit } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { notifyRequestParticipants } from '../../lib/notifications.js';
@@ -178,10 +180,18 @@ export async function listApprovalInbox(
       ),
     );
 
+  const orgRows = await db
+    .select({ eventId: eventOrganizers.eventId })
+    .from(eventOrganizers)
+    .where(eq(eventOrganizers.userId, viewer.userId));
+  const orgEventIds = new Set(orgRows.map((r) => r.eventId));
+
   const eligibleWorkflowRows: InboxRow[] = workflowRows.filter(
     (row) =>
       row.creatorId !== viewer.userId &&
       row.submittedById !== viewer.userId &&
+      row.facultyCoordinatorId !== viewer.userId &&
+      !orgEventIds.has(row.eventId) &&
       eligibleForStep(
         viewerRoles,
         { requiredRole: row.requiredRole, scopeType: row.scopeType },
@@ -394,23 +404,25 @@ export async function decideRequest(
         );
       }
 
-      const [existingDecision] = await tx
-        .select({ id: approvalDecisions.id, decision: approvalDecisions.decision })
-        .from(approvalDecisions)
-        .where(
-          and(
-            eq(approvalDecisions.approvalInstanceId, instance.id),
-            eq(approvalDecisions.stepOrder, 0),
-            eq(approvalDecisions.decision, input.decision),
-          ),
-        )
-        .limit(1);
-      if (existingDecision) {
-        throw new AppError(
-          409,
-          'DUPLICATE_DECISION',
-          'That decision has already been recorded for this stage.',
-        );
+      if (input.decision !== 'CHANGES_REQUESTED') {
+        const [existingDecision] = await tx
+          .select({ id: approvalDecisions.id, decision: approvalDecisions.decision })
+          .from(approvalDecisions)
+          .where(
+            and(
+              eq(approvalDecisions.approvalInstanceId, instance.id),
+              eq(approvalDecisions.stepOrder, 0),
+              eq(approvalDecisions.decision, input.decision),
+            ),
+          )
+          .limit(1);
+        if (existingDecision) {
+          throw new AppError(
+            409,
+            'DUPLICATE_DECISION',
+            'That decision has already been recorded for this stage.',
+          );
+        }
       }
 
       await tx.insert(approvalDecisions).values({
@@ -521,23 +533,34 @@ export async function decideRequest(
         );
       }
 
-      const [existingDecision] = await tx
-        .select({ id: approvalDecisions.id, decision: approvalDecisions.decision })
-        .from(approvalDecisions)
-        .where(
-          and(
-            eq(approvalDecisions.approvalInstanceId, instance.id),
-            eq(approvalDecisions.stepOrder, step.stepOrder),
-            eq(approvalDecisions.decision, input.decision),
-          ),
-        )
-        .limit(1);
-      if (existingDecision) {
+      const isCollaborator = await isEventCollaborator(tx, event.id, viewer.userId);
+      if (event.facultyCoordinatorId === viewer.userId || isCollaborator) {
         throw new AppError(
-          409,
-          'DUPLICATE_DECISION',
-          'That decision has already been recorded for this stage.',
+          403,
+          'SELF_APPROVAL_FORBIDDEN',
+          'Event organizers and coordinators cannot approve or reject their own event.',
         );
+      }
+
+      if (input.decision !== 'CHANGES_REQUESTED') {
+        const [existingDecision] = await tx
+          .select({ id: approvalDecisions.id, decision: approvalDecisions.decision })
+          .from(approvalDecisions)
+          .where(
+            and(
+              eq(approvalDecisions.approvalInstanceId, instance.id),
+              eq(approvalDecisions.stepOrder, step.stepOrder),
+              eq(approvalDecisions.decision, input.decision),
+            ),
+          )
+          .limit(1);
+        if (existingDecision) {
+          throw new AppError(
+            409,
+            'DUPLICATE_DECISION',
+            'That decision has already been recorded for this stage.',
+          );
+        }
       }
 
       await tx.insert(approvalDecisions).values({

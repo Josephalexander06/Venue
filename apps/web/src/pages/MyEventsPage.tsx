@@ -449,6 +449,13 @@ function EventCard({
               <NotePencil size={15} /> Edit details
             </Button>
           )}
+          {event.status !== 'CANCELLED' &&
+            event.status !== 'COMPLETED' &&
+            !event.requests.some((r) => OPEN_STATUSES.has(r.status) || r.status === 'CONFIRMED') && (
+              <Link to={`/venues?eventId=${event.id}`} className="btn btn-secondary btn-sm">
+                <CalendarBlank size={15} /> Reschedule venue
+              </Link>
+            )}
           {canCancelEvent && (
             <Button variant="danger-ghost" size="sm" onClick={onCancelEvent}>
               <Prohibit size={15} /> Cancel event
@@ -531,6 +538,17 @@ function EventCard({
                     Change slot
                   </Link>
                 )}
+                {(request.status === 'SUPERSEDED_CONFLICT' || request.status === 'REJECTED') &&
+                  !event.requests.some(
+                    (r) => OPEN_STATUSES.has(r.status) || r.status === 'CONFIRMED',
+                  ) && (
+                    <Link
+                      to={`/venues?eventId=${event.id}`}
+                      className="btn btn-secondary btn-sm"
+                    >
+                      Reschedule
+                    </Link>
+                  )}
                 {(OPEN_STATUSES.has(request.status) || request.status === 'CONFIRMED') && (
                   <Button
                     variant="danger-ghost"

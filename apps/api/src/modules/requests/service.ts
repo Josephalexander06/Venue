@@ -455,6 +455,8 @@ export async function getRequestView(
       canDecide =
         row.creatorId !== viewer.userId &&
         row.submittedById !== viewer.userId &&
+        row.facultyCoordinatorId !== viewer.userId &&
+        !isOrganizer &&
         eligibleForStep(viewerRoles, currentStep, row.departmentId, row.venueDepartmentId);
     }
   }
@@ -475,6 +477,8 @@ export async function getRequestView(
     row.status === 'APPROVED_PENDING_ALLOTMENT' &&
       row.creatorId !== viewer.userId &&
       row.submittedById !== viewer.userId &&
+      row.facultyCoordinatorId !== viewer.userId &&
+      !isOrganizer &&
       (isFinalEligible || viewer.isAdmin),
   );
 
@@ -644,8 +648,32 @@ export async function createVenueRequest(
         'You are not authorized to submit venue requests for this event.',
       );
     }
+    if (event.status === 'CANCELLED' || event.status === 'COMPLETED') {
+      throw new AppError(409, 'EVENT_CLOSED', 'This event is closed and cannot be booked.');
+    }
     if (event.status !== 'DRAFT') {
-      throw new AppError(409, 'EVENT_ALREADY_SUBMITTED', 'This event has already been submitted.');
+      const [activeReq] = await tx
+        .select({ id: venueRequests.id })
+        .from(venueRequests)
+        .where(
+          and(
+            eq(venueRequests.eventId, event.id),
+            inArray(venueRequests.status, [
+              'SUBMITTED',
+              'IN_REVIEW',
+              'APPROVED_PENDING_ALLOTMENT',
+              'CONFIRMED',
+            ]),
+          ),
+        )
+        .limit(1);
+      if (activeReq) {
+        throw new AppError(
+          409,
+          'EVENT_ALREADY_SUBMITTED',
+          'This event already has an active or confirmed booking request.',
+        );
+      }
     }
 
     assertBookingInterval(start, end);

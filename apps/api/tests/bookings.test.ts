@@ -744,4 +744,61 @@ describe('request lifecycle', () => {
     expect(response.statusCode).toBe(409);
     expect(response.json().code).toBe('CONFIRMED_REQUEST_LOCKED');
   });
+
+  it('allows rescheduling when prior requests are rejected or superseded, but blocks duplicate active requests', async () => {
+    const student = await studentSession();
+    const venue = await createVenue();
+    const eventRes = await createEvent(student, { title: 'Reschedule Test Event' });
+    const eventId = eventRes.json().event.id;
+
+    // 1. Submit initial request
+    const firstReq = await requestBooking(
+      student,
+      eventId,
+      venue.id,
+      '2099-10-01T10:00:00Z',
+      '2099-10-01T12:00:00Z',
+    );
+    expect(firstReq.statusCode).toBe(201);
+    const firstReqId = firstReq.json().request.id;
+
+    // 2. Attempting a second active request while first is SUBMITTED fails with 409
+    const dupReq = await requestBooking(
+      student,
+      eventId,
+      venue.id,
+      '2099-10-02T10:00:00Z',
+      '2099-10-02T12:00:00Z',
+    );
+    expect(dupReq.statusCode).toBe(409);
+    expect(dupReq.json().code).toBe('EVENT_ALREADY_SUBMITTED');
+
+    // 3. Reject first request
+    await db
+      .update(venueRequests)
+      .set({ status: 'REJECTED', rejectionReason: 'Slot not available' })
+      .where(eq(venueRequests.id, firstReqId));
+
+    // 4. Now submitting a new venue request for the event succeeds (rescheduled!)
+    const rescheduledReq = await requestBooking(
+      student,
+      eventId,
+      venue.id,
+      '2099-10-03T10:00:00Z',
+      '2099-10-03T12:00:00Z',
+    );
+    expect(rescheduledReq.statusCode).toBe(201);
+    expect(rescheduledReq.json().request.status).toBe('SUBMITTED');
+
+    // 5. Duplicate check still guards against multiple active requests after reschedule
+    const dupReqAfterReschedule = await requestBooking(
+      student,
+      eventId,
+      venue.id,
+      '2099-10-04T10:00:00Z',
+      '2099-10-04T12:00:00Z',
+    );
+    expect(dupReqAfterReschedule.statusCode).toBe(409);
+    expect(dupReqAfterReschedule.json().code).toBe('EVENT_ALREADY_SUBMITTED');
+  });
 });

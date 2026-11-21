@@ -16,6 +16,7 @@ import { bufferedRange } from '../../lib/booking.js';
 import { AppError } from '../../lib/errors.js';
 import { notifyRequestParticipants } from '../../lib/notifications.js';
 import { eligibleForStep, loadViewerRoles } from '../approvals/eligibility.js';
+import { isEventCollaborator } from '../events/service.js';
 import { getRequestView } from '../requests/service.js';
 import { mapRequestRow, requestSelection, type EventSummary } from '../requests/view.js';
 
@@ -106,6 +107,7 @@ export async function confirmAllotment(
           teardownBufferMins: venueRequests.teardownBufferMins,
           status: venueRequests.status,
           creatorId: events.creatorId,
+          facultyCoordinatorId: events.facultyCoordinatorId,
           submittedById: venueRequests.submittedById,
           eventTitle: events.title,
           departmentId: events.departmentId,
@@ -205,12 +207,18 @@ export async function confirmAllotment(
         );
       }
 
-      // 4. Separation of duties: requester cannot allot their own request
-      if (reqRow.creatorId === viewer.userId || reqRow.submittedById === viewer.userId) {
+      // 4. Separation of duties: requester/collaborator/coordinator cannot allot their own request
+      const isCollaborator = await isEventCollaborator(tx, reqRow.eventId, viewer.userId);
+      if (
+        reqRow.creatorId === viewer.userId ||
+        reqRow.submittedById === viewer.userId ||
+        reqRow.facultyCoordinatorId === viewer.userId ||
+        isCollaborator
+      ) {
         throw new AppError(
           403,
           'SELF_APPROVAL_FORBIDDEN',
-          'Institutional policy prohibits self-allotment. Another authorized approver must commit the final allotment.',
+          'Institutional policy prohibits self-allotment. Event organizers and coordinators cannot commit final allotment for their own event.',
         );
       }
 
@@ -646,7 +654,14 @@ export async function getCompetingRequests(
     throw new AppError(404, 'REQUEST_NOT_FOUND', 'Venue request not found.');
   }
 
-  // Find all requests for this venue overlapping effective range
+  const effective = bufferedRange(
+    targetReq.startTime,
+    targetReq.endTime,
+    targetReq.setupBufferMins,
+    targetReq.teardownBufferMins,
+  );
+
+  // Find all open requests for this venue overlapping effective range
   const rows = await db
     .select({
       ...requestSelection,
@@ -673,7 +688,12 @@ export async function getCompetingRequests(
       and(
         eq(venueRequests.venueId, targetReq.venueId),
         ne(venueRequests.id, targetReq.id),
-        sql`${venueRequests.effectiveRange} && tstzrange(${targetReq.startTime.toISOString()}, ${targetReq.endTime.toISOString()}, '[)')`,
+        inArray(venueRequests.status, [
+          'SUBMITTED',
+          'IN_REVIEW',
+          'APPROVED_PENDING_ALLOTMENT',
+        ]),
+        sql`${venueRequests.effectiveRange} && tstzrange(${effective.start.toISOString()}, ${effective.end.toISOString()}, '[)')`,
       ),
     )
     .orderBy(asc(venueRequests.createdAt));

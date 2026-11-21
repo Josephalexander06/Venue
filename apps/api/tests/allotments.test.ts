@@ -962,4 +962,99 @@ describe('Phase 4 — Atomic venue allotment & conflict resolution engine', () =
     expect(finalData.allotment.status).toBe('ACTIVE');
     expect(finalData.permissions.canCancelAllotment).toBe(true);
   });
+
+  it('12. Competitor discovery uses buffer-adjusted effective ranges and excludes closed requests', async () => {
+    const { venues, users } = await setupFixtures();
+    const student1Session = await login(app, users.student1.user.email, users.student1.password);
+    const student2Session = await login(app, users.student2.user.email, users.student2.password);
+    const hodCsSession = await login(app, users.hodCs.user.email, users.hodCs.password);
+
+    // Target request: 10:00 to 12:00. deptLab has setupBufferMins: 30, teardown: 30.
+    // Effective range of target is 09:30 to 12:30.
+    const targetEvent = await createEvent(student1Session, {
+      title: 'Target Request Event',
+      expectedAttendance: 20,
+    });
+    const targetReqRes = await createBookingRequest(
+      student1Session,
+      targetEvent.id,
+      venues.deptLab.id,
+      '2026-12-25T10:00:00Z',
+      '2026-12-25T12:00:00Z',
+    );
+    expect(targetReqRes.statusCode).toBe(201);
+    const targetRequestId = targetReqRes.json().request.id;
+
+    // Competitor A: 08:30 to 09:45. Raw times end before 10:00, but buffer range overlaps target's setup buffer!
+    const compAEvent = await createEvent(student2Session, {
+      title: 'Competitor A (Buffer Overlap)',
+      expectedAttendance: 20,
+    });
+    const compARes = await createBookingRequest(
+      student2Session,
+      compAEvent.id,
+      venues.deptLab.id,
+      '2026-12-25T08:30:00Z',
+      '2026-12-25T09:45:00Z',
+    );
+    expect(compARes.statusCode).toBe(201);
+    const compAId = compARes.json().request.id;
+
+    // Competitor B: Cancelled request during overlapping time
+    const compBEvent = await createEvent(student2Session, {
+      title: 'Competitor B (Cancelled)',
+      expectedAttendance: 20,
+    });
+    const compBRes = await createBookingRequest(
+      student2Session,
+      compBEvent.id,
+      venues.deptLab.id,
+      '2026-12-25T11:00:00Z',
+      '2026-12-25T13:00:00Z',
+    );
+    expect(compBRes.statusCode).toBe(201);
+    const compBId = compBRes.json().request.id;
+    await db
+      .update(venueRequests)
+      .set({ status: 'CANCELLED' })
+      .where(eq(venueRequests.id, compBId));
+
+    // Competitor C: Rejected request during overlapping time
+    const compCEvent = await createEvent(student2Session, {
+      title: 'Competitor C (Rejected)',
+      expectedAttendance: 20,
+    });
+    const compCRes = await createBookingRequest(
+      student2Session,
+      compCEvent.id,
+      venues.deptLab.id,
+      '2026-12-25T11:00:00Z',
+      '2026-12-25T13:00:00Z',
+    );
+    expect(compCRes.statusCode).toBe(201);
+    const compCId = compCRes.json().request.id;
+    await db
+      .update(venueRequests)
+      .set({ status: 'REJECTED', rejectionReason: 'Rejected' })
+      .where(eq(venueRequests.id, compCId));
+
+    // Call GET /api/v1/allotments/competing/:id as HOD
+    const competingRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/allotments/competing/${targetRequestId}`,
+      headers: { cookie: hodCsSession.cookie },
+    });
+    expect(competingRes.statusCode).toBe(200);
+    const competingBody = competingRes.json();
+    const competitorIds = competingBody.competingRequests.map(
+      (c: { request: { id: string } }) => c.request.id,
+    );
+
+    // Competitor A must be discovered via buffer overlap
+    expect(competitorIds).toContain(compAId);
+
+    // Cancelled and Rejected competitors must NOT be returned
+    expect(competitorIds).not.toContain(compBId);
+    expect(competitorIds).not.toContain(compCId);
+  });
 });

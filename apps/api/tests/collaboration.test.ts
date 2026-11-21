@@ -589,4 +589,115 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
     const { faculty: csFaculty } = facultyListRes.json<{ faculty: { id: string }[] }>();
     expect(csFaculty.some((f) => f.id === faculty.user.id)).toBe(true);
   });
+
+  it('prevents event collaborators and faculty coordinators from approving or allotting their own events while preserving Stage 0 endorsement', async () => {
+    const student = await createTestUser({ role: 'STUDENT', departmentCode: 'CS' });
+    const facultyCoordinator = await createTestUser({ role: 'FACULTY', departmentCode: 'CS' });
+    const collaboratorHod = await createTestUser({ role: 'HOD', departmentCode: 'CS' });
+    const independentHod = await createTestUser({ role: 'HOD', departmentCode: 'CS' });
+
+    const studentSession = await login(app, student.user.email, student.password);
+    const coordSession = await login(app, facultyCoordinator.user.email, facultyCoordinator.password);
+    const collabHodSession = await login(app, collaboratorHod.user.email, collaboratorHod.password);
+    const indepHodSession = await login(app, independentHod.user.email, independentHod.password);
+
+    const { venue } = await createVenueWithHodWorkflow(student.department.id);
+
+    // 1. Student creates event with faculty coordinator
+    const createEventRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/events',
+      headers: mutationHeaders(studentSession),
+      payload: {
+        title: 'Separation of Duties Event',
+        description: 'Audit test for collaborator self-approval',
+        expectedAttendance: 40,
+        facultyCoordinatorId: facultyCoordinator.user.id,
+      },
+    });
+    expect(createEventRes.statusCode).toBe(201);
+    const { event } = createEventRes.json();
+
+    // 2. Add collaboratorHod as an event team member
+    const addTeamRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${event.id}/organizers`,
+      headers: mutationHeaders(studentSession),
+      payload: { userId: collaboratorHod.user.id },
+    });
+    expect(addTeamRes.statusCode).toBe(201);
+
+    // 3. Student submits venue request
+    const reqRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue-requests',
+      headers: mutationHeaders(studentSession),
+      payload: {
+        eventId: event.id,
+        venueId: venue.id,
+        startTime: '2026-12-15T10:00:00Z',
+        endTime: '2026-12-15T12:00:00Z',
+      },
+    });
+    expect(reqRes.statusCode).toBe(201);
+    const reqId = reqRes.json().request.id;
+
+    // 4. Faculty Coordinator legitimate endorsement at Stage 0 succeeds
+    const endorseRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/approvals/${reqId}/decision`,
+      headers: mutationHeaders(coordSession),
+      payload: { decision: 'APPROVED' },
+    });
+    expect(endorseRes.statusCode).toBe(200);
+
+    // 5. Collaborator HOD attempts to approve Stage 1 (own event) -> 403 SELF_APPROVAL_FORBIDDEN
+    const collabApproveRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/approvals/${reqId}/decision`,
+      headers: mutationHeaders(collabHodSession),
+      payload: { decision: 'APPROVED' },
+    });
+    expect(collabApproveRes.statusCode).toBe(403);
+    expect(collabApproveRes.json().code).toBe('SELF_APPROVAL_FORBIDDEN');
+
+    // 6. Independent HOD approves Stage 1 -> 200
+    const indepApproveRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/approvals/${reqId}/decision`,
+      headers: mutationHeaders(indepHodSession),
+      payload: { decision: 'APPROVED' },
+    });
+    expect(indepApproveRes.statusCode).toBe(200);
+
+    // 7. Collaborator HOD attempts final allotment -> 403 SELF_APPROVAL_FORBIDDEN
+    const collabAllotRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/allotments/confirm',
+      headers: mutationHeaders(collabHodSession),
+      payload: { venueRequestId: reqId },
+    });
+    expect(collabAllotRes.statusCode).toBe(403);
+    expect(collabAllotRes.json().code).toBe('SELF_APPROVAL_FORBIDDEN');
+
+    // 8. Faculty Coordinator attempts final allotment -> 403 SELF_APPROVAL_FORBIDDEN
+    const coordAllotRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/allotments/confirm',
+      headers: mutationHeaders(coordSession),
+      payload: { venueRequestId: reqId },
+    });
+    expect(coordAllotRes.statusCode).toBe(403);
+    expect(coordAllotRes.json().code).toBe('SELF_APPROVAL_FORBIDDEN');
+
+    // 9. Independent HOD confirms final allotment -> 200
+    const indepAllotRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/allotments/confirm',
+      headers: mutationHeaders(indepHodSession),
+      payload: { venueRequestId: reqId },
+    });
+    expect(indepAllotRes.statusCode).toBe(200);
+    expect(indepAllotRes.json().status).toBe('ACTIVE');
+  });
 });
