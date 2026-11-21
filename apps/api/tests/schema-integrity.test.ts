@@ -82,6 +82,7 @@ async function createRequest(
     .insert(venueRequests)
     .values({
       eventId: data.event.id,
+      submittedById: data.admin.id,
       venueId: data.venue.id,
       workflowId: data.workflow.id,
       startTime: new Date(start),

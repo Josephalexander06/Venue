@@ -33,6 +33,7 @@ import {
   type EventSummary,
   type RequestRow,
 } from './view.js';
+import { isEventCollaborator } from '../events/service.js';
 
 interface Viewer {
   userId: string;
@@ -48,6 +49,7 @@ const OPEN_REQUEST_STATUSES = ['SUBMITTED', 'IN_REVIEW', 'APPROVED_PENDING_ALLOT
 
 interface RequestDetailRow extends RequestRow {
   creatorId: string;
+  facultyCoordinatorId: string | null;
   title: string;
   description: string | null;
   expectedAttendance: number;
@@ -63,6 +65,7 @@ interface RequestDetailRow extends RequestRow {
 const requestDetailSelection = {
   ...requestSelection,
   creatorId: events.creatorId,
+  facultyCoordinatorId: events.facultyCoordinatorId,
   title: events.title,
   description: events.description,
   expectedAttendance: events.expectedAttendance,
@@ -83,6 +86,7 @@ function eventSummary(row: RequestDetailRow): EventSummary {
     expectedAttendance: row.expectedAttendance,
     status: row.eventStatus,
     department: { id: row.departmentId, code: row.departmentCode, name: row.departmentName },
+    facultyCoordinatorId: row.facultyCoordinatorId,
     createdAt: row.eventCreatedAt.toISOString(),
     updatedAt: row.eventUpdatedAt.toISOString(),
   };
@@ -101,10 +105,13 @@ async function loadRequestDetail(db: DbExecutor, requestId: string, lock = false
   return row;
 }
 
-function assertRequestAccess(row: RequestDetailRow, viewer: Viewer) {
-  if (!viewer.isAdmin && row.creatorId !== viewer.userId) {
-    throw new AppError(404, 'REQUEST_NOT_FOUND', 'Booking request not found.');
-  }
+async function assertRequestAccess(db: DbExecutor, row: RequestDetailRow, viewer: Viewer) {
+  if (viewer.isAdmin) return;
+  if (row.creatorId === viewer.userId) return;
+  if (row.submittedById === viewer.userId) return;
+  if (row.facultyCoordinatorId === viewer.userId) return;
+  if (await isEventCollaborator(db, row.eventId, viewer.userId)) return;
+  throw new AppError(404, 'REQUEST_NOT_FOUND', 'Booking request not found.');
 }
 
 export interface RequestConflictView {
@@ -292,8 +299,12 @@ export async function getRequestView(
     .where(eq(workflowSteps.workflowId, row.workflowId))
     .orderBy(asc(workflowSteps.stepOrder));
   const viewerRoles = await loadViewerRoles(db, viewer.userId);
+  const isOrganizer = await isEventCollaborator(db, row.eventId, viewer.userId);
   const participant =
     row.creatorId === viewer.userId ||
+    row.submittedById === viewer.userId ||
+    row.facultyCoordinatorId === viewer.userId ||
+    isOrganizer ||
     viewer.isAdmin ||
     isWorkflowParticipant(viewerRoles, steps, row.departmentId, row.venueDepartmentId);
 
@@ -339,8 +350,8 @@ export async function getRequestView(
           .select({
             id: approvalDecisions.id,
             instanceId: approvalDecisions.approvalInstanceId,
-            stepOrder: workflowSteps.stepOrder,
-            stepName: workflowSteps.stepName,
+            stepOrder: approvalDecisions.stepOrder,
+            stepName: approvalDecisions.stepName,
             decision: approvalDecisions.decision,
             remarks: approvalDecisions.remarks,
             decidedAt: approvalDecisions.decidedAt,
@@ -354,7 +365,6 @@ export async function getRequestView(
             approvalInstances,
             eq(approvalInstances.id, approvalDecisions.approvalInstanceId),
           )
-          .innerJoin(workflowSteps, eq(workflowSteps.id, approvalDecisions.workflowStepId))
           .innerJoin(users, eq(users.id, approvalDecisions.approverId))
           .where(
             inArray(
@@ -390,9 +400,36 @@ export async function getRequestView(
     latestByStep.set(decision.stepOrder, decision);
   }
   const requestOpen = row.status === 'SUBMITTED' || row.status === 'IN_REVIEW';
-  const timeline: ApprovalTimelineStep[] = steps.map((step) => {
+
+  const timeline: ApprovalTimelineStep[] = [];
+  if (row.requiresFacultyEndorsement) {
+    const step0Decision = latestByStep.get(0) ?? null;
+    let step0State: ApprovalTimelineStep['state'] = 'PENDING';
+    if (step0Decision) {
+      step0State = step0Decision.decision;
+    } else if (row.facultyEndorsedAt) {
+      step0State = 'APPROVED';
+    } else if (row.currentStepOrder === 0 && requestOpen) {
+      step0State = 'CURRENT';
+    } else if (row.status === 'REJECTED' && row.currentStepOrder === 0) {
+      step0State = 'REJECTED';
+    }
+
+    timeline.push({
+      id: 'faculty-endorsement',
+      stepOrder: 0,
+      stepName: 'Faculty Coordinator Endorsement',
+      requiredRole: 'FACULTY',
+      scopeType: 'CREATOR_DEPARTMENT',
+      isFinalAllotmentStep: false,
+      state: step0State,
+      decision: step0Decision,
+    });
+  }
+
+  for (const step of steps) {
     const decision = latestByStep.get(step.stepOrder) ?? null;
-    return {
+    timeline.push({
       id: step.id,
       stepOrder: step.stepOrder,
       stepName: step.stepName,
@@ -403,19 +440,31 @@ export async function getRequestView(
         decision?.decision ??
         (requestOpen && step.stepOrder === row.currentStepOrder ? 'CURRENT' : 'PENDING'),
       decision,
-    };
-  });
+    });
+  }
 
   const currentStep = steps.find((step) => step.stepOrder === row.currentStepOrder) ?? null;
-  const canDecide = Boolean(
-    requestOpen &&
-      currentInstance?.isActive &&
-      currentStep &&
-      row.creatorId !== viewer.userId &&
-      eligibleForStep(viewerRoles, currentStep, row.departmentId, row.venueDepartmentId),
-  );
+  let canDecide = false;
+  if (requestOpen && currentInstance?.isActive) {
+    if (row.currentStepOrder === 0) {
+      canDecide =
+        (viewer.isAdmin || row.facultyCoordinatorId === viewer.userId) &&
+        row.creatorId !== viewer.userId &&
+        row.submittedById !== viewer.userId;
+    } else if (currentStep) {
+      canDecide =
+        row.creatorId !== viewer.userId &&
+        row.submittedById !== viewer.userId &&
+        eligibleForStep(viewerRoles, currentStep, row.departmentId, row.venueDepartmentId);
+    }
+  }
+
   const closed = ['REJECTED', 'CANCELLED', 'SUPERSEDED_CONFLICT'].includes(row.status);
-  const ownerOrAdmin = viewer.isAdmin || row.creatorId === viewer.userId;
+  const ownerOrAdmin =
+    viewer.isAdmin ||
+    row.creatorId === viewer.userId ||
+    row.submittedById === viewer.userId ||
+    isOrganizer;
 
   const finalStep = steps.find((s) => s.isFinalAllotmentStep) ?? steps[steps.length - 1];
   const isFinalEligible = finalStep
@@ -425,6 +474,7 @@ export async function getRequestView(
   const canAllot = Boolean(
     row.status === 'APPROVED_PENDING_ALLOTMENT' &&
       row.creatorId !== viewer.userId &&
+      row.submittedById !== viewer.userId &&
       (isFinalEligible || viewer.isAdmin),
   );
 
@@ -570,6 +620,7 @@ export async function createVenueRequest(
       .select({
         id: events.id,
         creatorId: events.creatorId,
+        facultyCoordinatorId: events.facultyCoordinatorId,
         status: events.status,
         expectedAttendance: events.expectedAttendance,
       })
@@ -578,8 +629,20 @@ export async function createVenueRequest(
       .for('update')
       .limit(1);
     if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Event not found.');
-    if (!viewer.isAdmin && event.creatorId !== viewer.userId) {
-      throw new AppError(404, 'EVENT_NOT_FOUND', 'Event not found.');
+
+    const isOrganizer = await isEventCollaborator(tx, event.id, viewer.userId);
+    const canSubmit =
+      viewer.isAdmin ||
+      event.creatorId === viewer.userId ||
+      event.facultyCoordinatorId === viewer.userId ||
+      isOrganizer;
+
+    if (!canSubmit) {
+      throw new AppError(
+        403,
+        'EVENT_ACCESS_FORBIDDEN',
+        'You are not authorized to submit venue requests for this event.',
+      );
     }
     if (event.status !== 'DRAFT') {
       throw new AppError(409, 'EVENT_ALREADY_SUBMITTED', 'This event has already been submitted.');
@@ -605,17 +668,42 @@ export async function createVenueRequest(
     }
 
     const workflow = await loadWorkflow(tx, venue.workflowId);
+
+    const callerRoles = await loadViewerRoles(tx, viewer.userId);
+    const isFacultyOrAbove =
+      viewer.isAdmin ||
+      callerRoles.some((r) =>
+        ['FACULTY', 'HOD', 'BURSAR', 'PRINCIPAL', 'ADMINISTRATOR'].includes(r.role),
+      );
+
+    let requiresFacultyEndorsement = false;
+    let initialStepOrder = workflow.firstStepOrder;
+
+    if (!isFacultyOrAbove) {
+      if (!event.facultyCoordinatorId) {
+        throw new AppError(
+          400,
+          'FACULTY_COORDINATOR_REQUIRED',
+          'Every event must have a designated faculty coordinator before a student can submit a venue request.',
+        );
+      }
+      requiresFacultyEndorsement = true;
+      initialStepOrder = 0;
+    }
+
     const [created] = await tx
       .insert(venueRequests)
       .values({
         eventId: event.id,
+        submittedById: viewer.userId,
+        requiresFacultyEndorsement,
         venueId: venue.id,
         workflowId: workflow.workflowId,
         startTime: start,
         endTime: end,
         setupBufferMins: venue.setupBufferMins,
         teardownBufferMins: venue.teardownBufferMins,
-        currentStepOrder: workflow.firstStepOrder,
+        currentStepOrder: initialStepOrder,
       })
       .returning({ id: venueRequests.id });
     if (!created) throw new Error('Venue request insert returned no row.');
@@ -623,7 +711,7 @@ export async function createVenueRequest(
     await tx.insert(approvalInstances).values({
       venueRequestId: created.id,
       workflowId: workflow.workflowId,
-      currentStepOrder: workflow.firstStepOrder,
+      currentStepOrder: initialStepOrder,
     });
     await tx
       .update(events)
@@ -641,6 +729,8 @@ export async function createVenueRequest(
         startTime: start.toISOString(),
         endTime: end.toISOString(),
         status: 'SUBMITTED',
+        requiresFacultyEndorsement,
+        initialStepOrder,
       },
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
@@ -670,7 +760,7 @@ export async function updateVenueRequest(
 ) {
   await db.transaction(async (tx) => {
     const row = await loadRequestDetail(tx, requestId, true);
-    assertRequestAccess(row, viewer);
+    await assertRequestAccess(tx, row, viewer);
 
     if (['CANCELLED', 'REJECTED', 'SUPERSEDED_CONFLICT'].includes(row.status)) {
       throw new AppError(409, 'REQUEST_CLOSED', 'This request can no longer be edited.');
@@ -745,7 +835,7 @@ export async function updateVenueRequest(
     const now = new Date();
     if (critical) {
       const targetWorkflow = await loadWorkflow(tx, venue.workflowId);
-      const firstStepOrder = targetWorkflow.firstStepOrder;
+      const restartStepOrder = row.requiresFacultyEndorsement ? 0 : targetWorkflow.firstStepOrder;
 
       await tx
         .update(approvalInstances)
@@ -759,7 +849,7 @@ export async function updateVenueRequest(
       await tx.insert(approvalInstances).values({
         venueRequestId: requestId,
         workflowId: targetWorkflow.workflowId,
-        currentStepOrder: firstStepOrder,
+        currentStepOrder: restartStepOrder,
       });
       await tx
         .update(venueRequests)
@@ -771,7 +861,9 @@ export async function updateVenueRequest(
           setupBufferMins: venue.setupBufferMins,
           teardownBufferMins: venue.teardownBufferMins,
           status: 'SUBMITTED',
-          currentStepOrder: firstStepOrder,
+          currentStepOrder: restartStepOrder,
+          facultyEndorserId: row.requiresFacultyEndorsement ? null : row.facultyEndorserId,
+          facultyEndorsedAt: row.requiresFacultyEndorsement ? null : row.facultyEndorsedAt,
           rejectionReason: null,
           updatedAt: now,
         })
@@ -826,7 +918,7 @@ export async function cancelVenueRequest(
 ) {
   await db.transaction(async (tx) => {
     const row = await loadRequestDetail(tx, requestId, true);
-    assertRequestAccess(row, viewer);
+    await assertRequestAccess(tx, row, viewer);
     if (row.status === 'CANCELLED') return;
     if (row.status === 'REJECTED' || row.status === 'SUPERSEDED_CONFLICT') {
       throw new AppError(409, 'REQUEST_CLOSED', 'This request is already closed.');

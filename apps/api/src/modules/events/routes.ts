@@ -1,11 +1,31 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { BOOKING_ROLES, eventInputSchema, eventUpdateSchema } from '@venue/shared';
+import {
+  BOOKING_ROLES,
+  eventCoordinatorSchema,
+  eventInputSchema,
+  eventOrganizerSchema,
+  eventUpdateSchema,
+} from '@venue/shared';
 import type { Database } from '../../db/index.js';
 import { parseInput } from '../../lib/validation.js';
-import { cancelEvent, createEvent, getEventView, listMyEvents, updateEvent } from './service.js';
+import {
+  addEventOrganizer,
+  cancelEvent,
+  createEvent,
+  getEventTeam,
+  getEventView,
+  listMyEvents,
+  removeEventOrganizer,
+  setEventCoordinator,
+  updateEvent,
+} from './service.js';
 
 const idParamsSchema = z.object({ id: z.string().uuid() });
+const organizerParamsSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+});
 
 function viewerFrom(request: { auth?: { user: { id: string; roles: { role: string }[] } } }) {
   return {
@@ -63,6 +83,35 @@ const eventRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) =>
     const { id } = parseInput(idParamsSchema, request.params);
     return {
       event: await cancelEvent(db, id, viewerFrom(request), contextFrom(request)),
+    };
+  });
+
+  app.get('/events/:id/team', bookingOnly, async (request) => {
+    const { id } = parseInput(idParamsSchema, request.params);
+    return {
+      team: await getEventTeam(db, id, viewerFrom(request)),
+    };
+  });
+
+  app.post('/events/:id/coordinator', bookingOnly, async (request) => {
+    const { id } = parseInput(idParamsSchema, request.params);
+    const input = parseInput(eventCoordinatorSchema, request.body);
+    return {
+      team: await setEventCoordinator(db, id, viewerFrom(request), input, contextFrom(request)),
+    };
+  });
+
+  app.post('/events/:id/organizers', bookingOnly, async (request, reply) => {
+    const { id } = parseInput(idParamsSchema, request.params);
+    const input = parseInput(eventOrganizerSchema, request.body);
+    const team = await addEventOrganizer(db, id, viewerFrom(request), input, contextFrom(request));
+    return reply.status(201).send({ team });
+  });
+
+  app.delete('/events/:id/organizers/:userId', bookingOnly, async (request) => {
+    const { id, userId } = parseInput(organizerParamsSchema, request.params);
+    return {
+      team: await removeEventOrganizer(db, id, viewerFrom(request), userId, contextFrom(request)),
     };
   });
 };

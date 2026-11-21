@@ -280,6 +280,38 @@ export function ApprovalDetailPage() {
                   <UsersThree size={14} /> {event.expectedAttendance} attendees expected
                 </span>
               </div>
+              <div className="summary-item">
+                <span className="summary-label">Faculty oversight</span>
+                {event.facultyCoordinator ? (
+                  <>
+                    <strong>
+                      Prof. {event.facultyCoordinator.firstName} {event.facultyCoordinator.lastName}
+                    </strong>
+                    <span>{event.facultyCoordinator.email}</span>
+                  </>
+                ) : (
+                  <>
+                    <strong>Faculty submission</strong>
+                    <span>Direct submission (no Stage 0 endorsement required)</span>
+                  </>
+                )}
+              </div>
+              {request.requiresFacultyEndorsement && (
+                <div className="summary-item">
+                  <span className="summary-label">Faculty endorsement</span>
+                  {request.facultyEndorsedAt ? (
+                    <>
+                      <strong className="text-emerald">Endorsed</strong>
+                      <span>Endorsement recorded on {formatDate(request.facultyEndorsedAt)}</span>
+                    </>
+                  ) : (
+                    <>
+                      <strong className="text-amber">Pending endorsement</strong>
+                      <span>Stage 0 review awaiting designated coordinator</span>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

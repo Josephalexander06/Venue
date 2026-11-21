@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CalendarBlank,
   CalendarCheck,
+  ChalkboardTeacher,
+  CheckCircle,
   Clock,
   MapPin,
   NotePencil,
@@ -12,7 +14,7 @@ import {
   UsersThree,
   WarningCircle,
 } from '@phosphor-icons/react';
-import type { EventView, RequestView } from '../lib/api';
+import type { EventSummary, EventView, RequestView } from '../lib/api';
 import { api, ApiError, fieldError } from '../lib/api';
 import { usePageTitle } from '../auth';
 import { formatDate } from '../lib/format';
@@ -30,6 +32,7 @@ import {
 } from '../components/ui';
 import { EventStatusBadge, RequestStatusBadge } from '../components/booking';
 import { RequestStatusDialog } from '../components/RequestStatusDialog';
+import { EventTeamDialog } from '../components/EventTeamDialog';
 
 type Filter = 'all' | 'open' | 'confirmed' | 'closed';
 
@@ -101,6 +104,7 @@ export function MyEventsPage() {
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
   const [statusRequestId, setStatusRequestId] = useState<string | null>(null);
+  const [teamTarget, setTeamTarget] = useState<EventSummary | null>(null);
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
 
@@ -249,6 +253,7 @@ export function MyEventsPage() {
               event={event}
               highlight={highlight}
               onEdit={() => openEdit(event)}
+              onManageTeam={() => setTeamTarget(event)}
               onTrackStatus={(req) => setStatusRequestId(req.id)}
               onCancelEvent={() =>
                 setCancelTarget({ type: 'event', id: event.id, label: event.title })
@@ -373,6 +378,13 @@ export function MyEventsPage() {
           onClose={() => setStatusRequestId(null)}
         />
       )}
+
+      {teamTarget && (
+        <EventTeamDialog
+          event={teamTarget}
+          onClose={() => setTeamTarget(null)}
+        />
+      )}
     </>
   );
 }
@@ -381,6 +393,7 @@ function EventCard({
   event,
   highlight,
   onEdit,
+  onManageTeam,
   onTrackStatus,
   onCancelEvent,
   onCancelRequest,
@@ -388,6 +401,7 @@ function EventCard({
   event: EventView;
   highlight: string | null;
   onEdit: () => void;
+  onManageTeam: () => void;
   onTrackStatus: (request: RequestView) => void;
   onCancelEvent: () => void;
   onCancelRequest: (request: RequestView) => void;
@@ -411,9 +425,25 @@ function EventCard({
               <CalendarBlank size={15} /> Created {formatDate(event.createdAt)}
             </span>
             <span>{event.department.code}</span>
+            {event.facultyCoordinator ? (
+              <span className="coordinator-badge">
+                <ChalkboardTeacher size={15} /> Prof. {event.facultyCoordinator.firstName}{' '}
+                {event.facultyCoordinator.lastName}
+              </span>
+            ) : (
+              <span
+                className="coordinator-badge is-missing"
+                title="A faculty coordinator from your department is required before student venue requests"
+              >
+                <WarningCircle size={15} /> No faculty coordinator
+              </span>
+            )}
           </div>
         </div>
         <div className="event-actions">
+          <Button variant="secondary" size="sm" onClick={onManageTeam}>
+            <UsersThree size={15} /> Event team
+          </Button>
           {event.status !== 'CANCELLED' && event.status !== 'COMPLETED' && (
             <Button variant="secondary" size="sm" onClick={onEdit}>
               <NotePencil size={15} /> Edit details
@@ -432,7 +462,11 @@ function EventCard({
           <Clock size={22} weight="duotone" aria-hidden="true" />
           <div>
             <strong>No venue requested yet</strong>
-            <p>Choose a venue and a date to submit this event for approval.</p>
+            <p>
+              {!event.facultyCoordinatorId
+                ? 'Assign a faculty coordinator under "Event team" before submitting venue requests.'
+                : 'Choose a venue and a date to submit this event for approval.'}
+            </p>
           </div>
           <Link to={`/venues?eventId=${event.id}`} className="btn btn-secondary btn-sm">
             Choose a venue
@@ -459,6 +493,23 @@ function EventCard({
               </span>
               <span className="booking-row-status">
                 <RequestStatusBadge status={request.status} />
+                {request.requiresFacultyEndorsement && (
+                  <span
+                    className={`endorsement-pill ${
+                      request.facultyEndorsedAt ? 'is-endorsed' : 'is-pending'
+                    }`}
+                  >
+                    {request.facultyEndorsedAt ? (
+                      <>
+                        <CheckCircle size={13} weight="fill" /> Faculty endorsed
+                      </>
+                    ) : (
+                      <>
+                        <Clock size={13} /> Stage 0: Pending endorsement
+                      </>
+                    )}
+                  </span>
+                )}
                 {requestGuidance(request) && <span>{requestGuidance(request)}</span>}
               </span>
               <span className="booking-row-actions">

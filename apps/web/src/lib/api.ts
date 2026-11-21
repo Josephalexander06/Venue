@@ -4,6 +4,8 @@ import type {
   ApprovalDecisionInput,
   ApproverRole,
   AuthSessionResponse,
+  DepartmentInput,
+  DepartmentUpdateInput,
   EventInput,
   EventStatus,
   EventUpdateInput,
@@ -122,6 +124,10 @@ export interface Availability {
 export interface RequestView {
   id: string;
   eventId: string;
+  submittedById?: string;
+  requiresFacultyEndorsement?: boolean;
+  facultyEndorserId?: string | null;
+  facultyEndorsedAt?: string | null;
   venue: { id: string; code: string; name: string; building: string; floor: number };
   startTime: string;
   endTime: string;
@@ -143,8 +149,49 @@ export interface EventSummary {
   expectedAttendance: number;
   status: EventStatus;
   department: { id: string; code: string; name: string };
+  creatorId?: string;
+  facultyCoordinatorId?: string | null;
+  facultyCoordinator?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+  } | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface EventTeamMember {
+  id: string;
+  userId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  department: { id: string; code: string; name: string };
+  assignedAt?: string;
+}
+
+export interface EventTeamView {
+  creator: EventTeamMember;
+  facultyCoordinator: EventTeamMember | null;
+  organizers: EventTeamMember[];
+}
+
+export interface FacultyMember {
+  id: string;
+  userId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  department: { id: string; code: string; name: string };
+}
+
+export interface DepartmentWithStats extends Department {
+  createdAt: string;
+  updatedAt: string;
+  usersCount: number;
+  venuesCount: number;
+  eventsCount: number;
 }
 
 export interface EventView extends EventSummary {
@@ -600,6 +647,58 @@ export const api = {
 
   competingRequests(requestId: string) {
     return request<CompetingRequestsView>(`/allotments/competing/${requestId}`);
+  },
+
+  adminDepartments() {
+    return request<{ departments: DepartmentWithStats[] }>('/admin/departments');
+  },
+
+  createDepartment(input: DepartmentInput) {
+    return request<{ department: DepartmentWithStats }>('/admin/departments', {
+      method: 'POST',
+      body: jsonBody(input),
+    });
+  },
+
+  updateDepartment(id: string, input: DepartmentUpdateInput) {
+    return request<{ department: DepartmentWithStats }>(`/admin/departments/${id}`, {
+      method: 'PATCH',
+      body: jsonBody(input),
+    });
+  },
+
+  deleteDepartment(id: string) {
+    return request<null>(`/admin/departments/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  departmentFaculty(departmentId: string) {
+    return request<{ faculty: FacultyMember[] }>(`/departments/${departmentId}/faculty`);
+  },
+
+  eventTeam(eventId: string) {
+    return request<{ team: EventTeamView }>(`/events/${eventId}/team`);
+  },
+
+  setEventCoordinator(eventId: string, facultyCoordinatorId: string) {
+    return request<{ team: EventTeamView }>(`/events/${eventId}/coordinator`, {
+      method: 'POST',
+      body: jsonBody({ facultyCoordinatorId }),
+    });
+  },
+
+  addEventOrganizer(eventId: string, userId: string) {
+    return request<{ team: EventTeamView }>(`/events/${eventId}/organizers`, {
+      method: 'POST',
+      body: jsonBody({ userId }),
+    });
+  },
+
+  removeEventOrganizer(eventId: string, userId: string) {
+    return request<{ team: EventTeamView }>(`/events/${eventId}/organizers/${userId}`, {
+      method: 'DELETE',
+    });
   },
 };
 

@@ -223,6 +223,7 @@ export const events = pgTable(
     creatorId: uuid('creator_id')
       .notNull()
       .references(() => users.id),
+    facultyCoordinatorId: uuid('faculty_coordinator_id').references((): AnyPgColumn => users.id),
     expectedAttendance: integer('expected_attendance').notNull(),
     status: eventStatusEnum('status').notNull().default('DRAFT'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -232,6 +233,28 @@ export const events = pgTable(
     check('events_attendance_positive', sql`${table.expectedAttendance} > 0`),
     index('events_creator_idx').on(table.creatorId, table.createdAt),
     index('events_status_idx').on(table.status),
+    index('events_faculty_coordinator_idx').on(table.facultyCoordinatorId),
+  ],
+);
+
+export const eventOrganizers = pgTable(
+  'event_organizers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    assignedById: uuid('assigned_by_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('event_organizers_event_user_unique').on(table.eventId, table.userId),
+    index('event_organizers_user_idx').on(table.userId),
   ],
 );
 
@@ -242,6 +265,12 @@ export const venueRequests = pgTable(
     eventId: uuid('event_id')
       .notNull()
       .references(() => events.id, { onDelete: 'cascade' }),
+    submittedById: uuid('submitted_by_id')
+      .notNull()
+      .references(() => users.id),
+    requiresFacultyEndorsement: boolean('requires_faculty_endorsement').notNull().default(false),
+    facultyEndorserId: uuid('faculty_endorser_id').references(() => users.id),
+    facultyEndorsedAt: timestamp('faculty_endorsed_at', { withTimezone: true }),
     venueId: uuid('venue_id')
       .notNull()
       .references(() => venues.id),
@@ -276,6 +305,7 @@ export const venueRequests = pgTable(
     check('venue_requests_teardown_buffer_non_negative', sql`${table.teardownBufferMins} >= 0`),
     index('venue_requests_event_idx').on(table.eventId),
     index('venue_requests_venue_status_idx').on(table.venueId, table.status),
+    index('venue_requests_submitted_by_idx').on(table.submittedById),
   ],
 );
 
@@ -309,8 +339,9 @@ export const approvalDecisions = pgTable(
       .notNull()
       .references(() => approvalInstances.id, { onDelete: 'cascade' }),
     workflowStepId: uuid('workflow_step_id')
-      .notNull()
       .references(() => workflowSteps.id),
+    stepOrder: integer('step_order').notNull().default(1),
+    stepName: varchar('step_name', { length: 100 }).notNull().default('Approval'),
     approverId: uuid('approver_id')
       .notNull()
       .references(() => users.id),
@@ -319,9 +350,9 @@ export const approvalDecisions = pgTable(
     decidedAt: timestamp('decided_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex('approval_decisions_step_decision_unique').on(
+    uniqueIndex('approval_decisions_instance_step_decision_unique').on(
       table.approvalInstanceId,
-      table.workflowStepId,
+      table.stepOrder,
       table.decision,
     ),
     index('approval_decisions_instance_idx').on(table.approvalInstanceId, table.decidedAt),
@@ -371,3 +402,4 @@ export const auditLogs = pgTable('audit_logs', {
 export type UserRow = typeof users.$inferSelect;
 export type DepartmentRow = typeof departments.$inferSelect;
 export type RoleRow = typeof roles.$inferSelect;
+export type EventOrganizerRow = typeof eventOrganizers.$inferSelect;

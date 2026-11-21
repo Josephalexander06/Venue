@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ROLE_LABELS, type RoleName } from '@venue/shared';
 import {
   ArrowSquareOut,
+  Buildings,
   CalendarBlank,
   CalendarCheck,
   CheckSquareOffset,
@@ -138,6 +139,10 @@ export function AppShell() {
                 <NavLink to="/admin/workflows" className={navClass}>
                   <GitBranch size={19} />
                   <span>Approval workflows</span>
+                </NavLink>
+                <NavLink to="/admin/departments" className={navClass}>
+                  <Buildings size={19} />
+                  <span>Departments</span>
                 </NavLink>
               </>
             )}

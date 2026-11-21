@@ -6793,3 +6793,265 @@ body:has(dialog[open]) {
   color: #059669;
   border-color: rgba(16, 185, 129, 0.25);
 }
+
+/* Phase 5 — Event Collaboration & Faculty Endorsement */
+
+.coordinator-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  font-weight: 500;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+}
+
+.coordinator-badge.is-missing {
+  background: rgba(245, 158, 11, 0.1);
+  color: #b45309;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.endorsement-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.endorsement-pill.is-endorsed {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.28);
+}
+
+.endorsement-pill.is-pending {
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.approval-endorsement-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: rgba(99, 102, 241, 0.12);
+  color: #4f46e5;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+
+.event-team-dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.team-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.team-section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.team-section-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.team-section-header h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.team-section-hint {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  color: var(--ink-3);
+  line-height: 1.35;
+}
+
+.team-member-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.team-member-card.coordinator-card {
+  background: rgba(99, 102, 241, 0.04);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+
+.member-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.member-info strong {
+  font-size: 0.88rem;
+  color: var(--ink-1);
+}
+
+.member-email {
+  font-size: 0.8rem;
+  color: var(--ink-2);
+}
+
+.member-dept {
+  font-size: 0.74rem;
+  color: var(--ink-3);
+}
+
+.member-role-tag {
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.74rem;
+  font-weight: 600;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--ink-2);
+}
+
+.member-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-icon-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-icon-danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.team-alert-missing {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-md);
+}
+
+.team-alert-missing .alert-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.team-alert-missing strong {
+  font-size: 0.85rem;
+  color: #b45309;
+}
+
+.team-alert-missing p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ink-2);
+}
+
+.coordinator-assign-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.add-organizer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.add-organizer-row .form-field {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+/* Faculty Endorsement Booking Wizard Banner */
+
+.faculty-endorsement-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: rgba(99, 102, 241, 0.04);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: var(--radius-md);
+}
+
+.workflow-route-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--ink-2);
+  padding: 6px 10px;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.route-preview-badge {
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.route-step {
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+
+.route-step.is-highlight {
+  background: rgba(99, 102, 241, 0.12);
+  color: #4f46e5;
+  font-weight: 600;
+}
+
+.route-arrow {
+  color: var(--ink-3);
+  font-size: 0.7rem;
+}

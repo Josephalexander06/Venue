@@ -22,6 +22,13 @@
       "when": 1795146445348,
       "tag": "0002_superb_reptil",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795179300000,
+      "tag": "0003_event_collaboration",
+      "breakpoints": true
     }
   ]
 }

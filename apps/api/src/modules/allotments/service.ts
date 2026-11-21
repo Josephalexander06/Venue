@@ -104,6 +104,7 @@ export async function confirmAllotment(
           teardownBufferMins: venueRequests.teardownBufferMins,
           status: venueRequests.status,
           creatorId: events.creatorId,
+          submittedById: venueRequests.submittedById,
           eventTitle: events.title,
           departmentId: events.departmentId,
           venueDepartmentId: venues.departmentId,
@@ -203,7 +204,7 @@ export async function confirmAllotment(
       }
 
       // 4. Separation of duties: requester cannot allot their own request
-      if (reqRow.creatorId === viewer.userId) {
+      if (reqRow.creatorId === viewer.userId || reqRow.submittedById === viewer.userId) {
         throw new AppError(
           403,
           'SELF_APPROVAL_FORBIDDEN',

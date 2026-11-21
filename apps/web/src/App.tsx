@@ -50,6 +50,11 @@ const AdminVenuesPage = lazy(() =>
 const AdminWorkflowsPage = lazy(() =>
   import('./pages/AdminWorkflowsPage').then((module) => ({ default: module.AdminWorkflowsPage })),
 );
+const AdminDepartmentsPage = lazy(() =>
+  import('./pages/AdminDepartmentsPage').then((module) => ({
+    default: module.AdminDepartmentsPage,
+  })),
+);
 const ForbiddenPage = lazy(() =>
   import('./pages/ErrorPages').then((module) => ({ default: module.ForbiddenPage })),
 );
@@ -99,6 +104,7 @@ export function App() {
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/venues" element={<AdminVenuesPage />} />
               <Route path="/admin/workflows" element={<AdminWorkflowsPage />} />
+              <Route path="/admin/departments" element={<AdminDepartmentsPage />} />
             </Route>
           </Route>
         </Route>

@@ -49,6 +49,10 @@ const INBOX_STATUSES = ['SUBMITTED', 'IN_REVIEW', 'APPROVED_PENDING_ALLOTMENT'] 
 interface InboxRow {
   id: string;
   eventId: string;
+  submittedById: string;
+  requiresFacultyEndorsement: boolean;
+  facultyEndorserId: string | null;
+  facultyEndorsedAt: Date | null;
   workflowId: string;
   venueId: string;
   startTime: Date;
@@ -65,6 +69,7 @@ interface InboxRow {
   venueBuilding: string;
   venueFloor: number;
   creatorId: string;
+  facultyCoordinatorId: string | null;
   title: string;
   description: string | null;
   expectedAttendance: number;
@@ -96,26 +101,6 @@ export interface ApprovalInboxItem {
   conflicts: { confirmedCount: number; pendingCount: number };
 }
 
-const inboxSelection = {
-  ...requestSelection,
-  creatorId: events.creatorId,
-  title: events.title,
-  description: events.description,
-  expectedAttendance: events.expectedAttendance,
-  eventStatus: events.status,
-  eventCreatedAt: events.createdAt,
-  eventUpdatedAt: events.updatedAt,
-  departmentId: departments.id,
-  departmentCode: departments.code,
-  departmentName: departments.name,
-  venueDepartmentId: venues.departmentId,
-  stepId: workflowSteps.id,
-  stepName: workflowSteps.stepName,
-  requiredRole: workflowSteps.requiredRole,
-  scopeType: workflowSteps.scopeType,
-  isFinalAllotmentStep: workflowSteps.isFinalAllotmentStep,
-};
-
 function eventSummary(row: InboxRow): EventSummary {
   return {
     id: row.eventId,
@@ -128,6 +113,8 @@ function eventSummary(row: InboxRow): EventSummary {
       code: row.departmentCode,
       name: row.departmentName,
     },
+    facultyCoordinatorId: row.facultyCoordinatorId,
+    creatorId: row.creatorId,
     createdAt: row.eventCreatedAt.toISOString(),
     updatedAt: row.eventUpdatedAt.toISOString(),
   };
@@ -139,8 +126,29 @@ export async function listApprovalInbox(
   page: { limit: number; offset: number },
 ) {
   const viewerRoles = await loadViewerRoles(db, viewer.userId);
-  const rows = await db
-    .select(inboxSelection)
+
+  // 1. Query workflow step requests (Stage 1..N)
+  const workflowRows = await db
+    .select({
+      ...requestSelection,
+      creatorId: events.creatorId,
+      facultyCoordinatorId: events.facultyCoordinatorId,
+      title: events.title,
+      description: events.description,
+      expectedAttendance: events.expectedAttendance,
+      eventStatus: events.status,
+      eventCreatedAt: events.createdAt,
+      eventUpdatedAt: events.updatedAt,
+      departmentId: departments.id,
+      departmentCode: departments.code,
+      departmentName: departments.name,
+      venueDepartmentId: venues.departmentId,
+      stepId: workflowSteps.id,
+      stepName: workflowSteps.stepName,
+      requiredRole: workflowSteps.requiredRole,
+      scopeType: workflowSteps.scopeType,
+      isFinalAllotmentStep: workflowSteps.isFinalAllotmentStep,
+    })
     .from(venueRequests)
     .innerJoin(venues, eq(venues.id, venueRequests.venueId))
     .innerJoin(events, eq(events.id, venueRequests.eventId))
@@ -161,12 +169,17 @@ export async function listApprovalInbox(
         eq(workflowSteps.stepOrder, approvalInstances.currentStepOrder),
       ),
     )
-    .where(inArray(venueRequests.status, [...INBOX_STATUSES]))
-    .orderBy(asc(venueRequests.createdAt));
+    .where(
+      and(
+        inArray(venueRequests.status, [...INBOX_STATUSES]),
+        gt(venueRequests.currentStepOrder, 0),
+      ),
+    );
 
-  const eligibleRows = rows.filter(
+  const eligibleWorkflowRows: InboxRow[] = workflowRows.filter(
     (row) =>
       row.creatorId !== viewer.userId &&
+      row.submittedById !== viewer.userId &&
       eligibleForStep(
         viewerRoles,
         { requiredRole: row.requiredRole, scopeType: row.scopeType },
@@ -174,7 +187,66 @@ export async function listApprovalInbox(
         row.venueDepartmentId,
       ),
   );
-  const pageRows = eligibleRows.slice(page.offset, page.offset + page.limit);
+
+  // 2. Query Step 0 requests (Faculty coordinator endorsement)
+  const step0Rows = await db
+    .select({
+      ...requestSelection,
+      creatorId: events.creatorId,
+      facultyCoordinatorId: events.facultyCoordinatorId,
+      title: events.title,
+      description: events.description,
+      expectedAttendance: events.expectedAttendance,
+      eventStatus: events.status,
+      eventCreatedAt: events.createdAt,
+      eventUpdatedAt: events.updatedAt,
+      departmentId: departments.id,
+      departmentCode: departments.code,
+      departmentName: departments.name,
+      venueDepartmentId: venues.departmentId,
+    })
+    .from(venueRequests)
+    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    .innerJoin(events, eq(events.id, venueRequests.eventId))
+    .innerJoin(departments, eq(departments.id, events.departmentId))
+    .innerJoin(
+      approvalInstances,
+      and(
+        eq(approvalInstances.venueRequestId, venueRequests.id),
+        eq(approvalInstances.workflowId, venueRequests.workflowId),
+        eq(approvalInstances.isActive, true),
+        eq(approvalInstances.currentStepOrder, 0),
+      ),
+    )
+    .where(
+      and(
+        eq(venueRequests.currentStepOrder, 0),
+        eq(venueRequests.requiresFacultyEndorsement, true),
+        inArray(venueRequests.status, ['SUBMITTED', 'IN_REVIEW']),
+      ),
+    );
+
+  const eligibleStep0Rows: InboxRow[] = step0Rows
+    .filter((row) => {
+      if (row.creatorId === viewer.userId || row.submittedById === viewer.userId) {
+        return false;
+      }
+      return viewer.isAdmin || row.facultyCoordinatorId === viewer.userId;
+    })
+    .map((row) => ({
+      ...row,
+      stepId: 'faculty-endorsement',
+      stepName: 'Faculty Coordinator Endorsement',
+      requiredRole: 'FACULTY' as RoleName,
+      scopeType: 'CREATOR_DEPARTMENT' as WorkflowScopeType,
+      isFinalAllotmentStep: false,
+    }));
+
+  const combined = [...eligibleStep0Rows, ...eligibleWorkflowRows].sort(
+    (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+  );
+
+  const pageRows = combined.slice(page.offset, page.offset + page.limit);
   const items = await Promise.all(
     pageRows.map(async (row) => {
       const conflicts = await findRequestConflicts(db, {
@@ -206,7 +278,7 @@ export async function listApprovalInbox(
 
   return {
     items,
-    total: eligibleRows.length,
+    total: combined.length,
     limit: page.limit,
     offset: page.offset,
   };
@@ -234,6 +306,7 @@ async function loadLockedRequest(db: DbExecutor, requestId: string) {
     .select({
       id: events.id,
       creatorId: events.creatorId,
+      facultyCoordinatorId: events.facultyCoordinatorId,
       departmentId: events.departmentId,
       title: events.title,
       status: events.status,
@@ -298,122 +371,58 @@ export async function decideRequest(
       );
     }
 
-    const [step] = await tx
-      .select()
-      .from(workflowSteps)
-      .where(
-        and(
-          eq(workflowSteps.workflowId, request.workflowId),
-          eq(workflowSteps.stepOrder, request.currentStepOrder),
-        ),
-      )
-      .limit(1);
-    if (!step) {
-      throw new AppError(409, 'APPROVAL_STEP_MISSING', 'The current approval step is not configured.');
-    }
-
-    if (event.creatorId === viewer.userId) {
+    if (event.creatorId === viewer.userId || request.submittedById === viewer.userId) {
       throw new AppError(
         403,
         'SELF_APPROVAL_FORBIDDEN',
         'You cannot approve or reject your own request.',
       );
     }
-    const viewerRoles: ViewerRole[] = await loadViewerRoles(tx, viewer.userId);
-    if (
-      !eligibleForStep(
-        viewerRoles,
-        { requiredRole: step.requiredRole, scopeType: step.scopeType },
-        event.departmentId,
-        venue.departmentId,
-      )
-    ) {
-      throw new AppError(
-        403,
-        'APPROVAL_FORBIDDEN',
-        'You are not the authorized approver for this stage.',
-      );
-    }
-
-    const [existingDecision] = await tx
-      .select({ id: approvalDecisions.id, decision: approvalDecisions.decision })
-      .from(approvalDecisions)
-      .where(
-        and(
-          eq(approvalDecisions.approvalInstanceId, instance.id),
-          eq(approvalDecisions.workflowStepId, step.id),
-          eq(approvalDecisions.decision, input.decision),
-        ),
-      )
-      .limit(1);
-    if (existingDecision) {
-      throw new AppError(
-        409,
-        'DUPLICATE_DECISION',
-        'That decision has already been recorded for this stage.',
-      );
-    }
 
     const now = new Date();
-    await tx.insert(approvalDecisions).values({
-      approvalInstanceId: instance.id,
-      workflowStepId: step.id,
-      approverId: viewer.userId,
-      decision: input.decision,
-      remarks: input.comments || null,
-      decidedAt: now,
-    });
-
     let nextStatus = request.status;
-    if (input.decision === 'REJECTED') {
-      await tx
-        .update(approvalInstances)
-        .set({ isActive: false, isCompleted: true, updatedAt: now })
-        .where(eq(approvalInstances.id, instance.id));
-      await tx
-        .update(venueRequests)
-        .set({
-          status: 'REJECTED',
-          rejectionReason: input.comments || null,
-          updatedAt: now,
-        })
-        .where(eq(venueRequests.id, requestId));
-      nextStatus = 'REJECTED';
-    } else if (input.decision === 'CHANGES_REQUESTED') {
-      await tx
-        .update(venueRequests)
-        .set({ status: 'SUBMITTED', rejectionReason: null, updatedAt: now })
-        .where(eq(venueRequests.id, requestId));
-      nextStatus = 'SUBMITTED';
-    } else {
-      const [nextStep] = await tx
-        .select({ stepOrder: workflowSteps.stepOrder })
-        .from(workflowSteps)
+
+    if (request.currentStepOrder === 0) {
+      // Step 0: Faculty Coordinator Endorsement
+      if (!viewer.isAdmin && event.facultyCoordinatorId !== viewer.userId) {
+        throw new AppError(
+          403,
+          'APPROVAL_FORBIDDEN',
+          'You are not the designated faculty coordinator for this event.',
+        );
+      }
+
+      const [existingDecision] = await tx
+        .select({ id: approvalDecisions.id, decision: approvalDecisions.decision })
+        .from(approvalDecisions)
         .where(
           and(
-            eq(workflowSteps.workflowId, request.workflowId),
-            gt(workflowSteps.stepOrder, step.stepOrder),
+            eq(approvalDecisions.approvalInstanceId, instance.id),
+            eq(approvalDecisions.stepOrder, 0),
+            eq(approvalDecisions.decision, input.decision),
           ),
         )
-        .orderBy(asc(workflowSteps.stepOrder))
         .limit(1);
+      if (existingDecision) {
+        throw new AppError(
+          409,
+          'DUPLICATE_DECISION',
+          'That decision has already been recorded for this stage.',
+        );
+      }
 
-      if (nextStep) {
-        await tx
-          .update(approvalInstances)
-          .set({ currentStepOrder: nextStep.stepOrder, updatedAt: now })
-          .where(eq(approvalInstances.id, instance.id));
-        await tx
-          .update(venueRequests)
-          .set({
-            status: 'IN_REVIEW',
-            currentStepOrder: nextStep.stepOrder,
-            rejectionReason: null,
-            updatedAt: now,
-          })
-          .where(eq(venueRequests.id, requestId));
-        nextStatus = 'IN_REVIEW';
-      } else {
+      await tx.insert(approvalDecisions).values({
+        approvalInstanceId: instance.id,
+        workflowStepId: null,
+        stepOrder: 0,
+        stepName: 'Faculty Coordinator Endorsement',
+        approverId: viewer.userId,
+        decision: input.decision,
+        remarks: input.comments || null,
+        decidedAt: now,
+      });
+
+      if (input.decision === 'REJECTED') {
         await tx
           .update(approvalInstances)
           .set({ isActive: false, isCompleted: true, updatedAt: now })
@@ -421,12 +430,188 @@ export async function decideRequest(
         await tx
           .update(venueRequests)
           .set({
-            status: 'APPROVED_PENDING_ALLOTMENT',
-            rejectionReason: null,
+            status: 'REJECTED',
+            rejectionReason: input.comments || null,
             updatedAt: now,
           })
           .where(eq(venueRequests.id, requestId));
-        nextStatus = 'APPROVED_PENDING_ALLOTMENT';
+        nextStatus = 'REJECTED';
+      } else if (input.decision === 'CHANGES_REQUESTED') {
+        await tx
+          .update(venueRequests)
+          .set({ status: 'SUBMITTED', rejectionReason: null, updatedAt: now })
+          .where(eq(venueRequests.id, requestId));
+        nextStatus = 'SUBMITTED';
+      } else {
+        // APPROVED (Endorsed): Advance to venue workflow (Step 1)
+        const steps = await tx
+          .select({ stepOrder: workflowSteps.stepOrder })
+          .from(workflowSteps)
+          .where(eq(workflowSteps.workflowId, request.workflowId))
+          .orderBy(asc(workflowSteps.stepOrder))
+          .limit(1);
+
+        const firstWorkflowStep = steps[0];
+        if (firstWorkflowStep) {
+          await tx
+            .update(approvalInstances)
+            .set({ currentStepOrder: firstWorkflowStep.stepOrder, updatedAt: now })
+            .where(eq(approvalInstances.id, instance.id));
+          await tx
+            .update(venueRequests)
+            .set({
+              status: 'IN_REVIEW',
+              currentStepOrder: firstWorkflowStep.stepOrder,
+              facultyEndorserId: viewer.userId,
+              facultyEndorsedAt: now,
+              rejectionReason: null,
+              updatedAt: now,
+            })
+            .where(eq(venueRequests.id, requestId));
+          nextStatus = 'IN_REVIEW';
+        } else {
+          await tx
+            .update(approvalInstances)
+            .set({ isActive: false, isCompleted: true, updatedAt: now })
+            .where(eq(approvalInstances.id, instance.id));
+          await tx
+            .update(venueRequests)
+            .set({
+              status: 'APPROVED_PENDING_ALLOTMENT',
+              facultyEndorserId: viewer.userId,
+              facultyEndorsedAt: now,
+              rejectionReason: null,
+              updatedAt: now,
+            })
+            .where(eq(venueRequests.id, requestId));
+          nextStatus = 'APPROVED_PENDING_ALLOTMENT';
+        }
+      }
+    } else {
+      // Step 1..N: Configured venue workflow steps
+      const [step] = await tx
+        .select()
+        .from(workflowSteps)
+        .where(
+          and(
+            eq(workflowSteps.workflowId, request.workflowId),
+            eq(workflowSteps.stepOrder, request.currentStepOrder),
+          ),
+        )
+        .limit(1);
+      if (!step) {
+        throw new AppError(409, 'APPROVAL_STEP_MISSING', 'The current approval step is not configured.');
+      }
+
+      const viewerRoles: ViewerRole[] = await loadViewerRoles(tx, viewer.userId);
+      if (
+        !eligibleForStep(
+          viewerRoles,
+          { requiredRole: step.requiredRole, scopeType: step.scopeType },
+          event.departmentId,
+          venue.departmentId,
+        )
+      ) {
+        throw new AppError(
+          403,
+          'APPROVAL_FORBIDDEN',
+          'You are not the authorized approver for this stage.',
+        );
+      }
+
+      const [existingDecision] = await tx
+        .select({ id: approvalDecisions.id, decision: approvalDecisions.decision })
+        .from(approvalDecisions)
+        .where(
+          and(
+            eq(approvalDecisions.approvalInstanceId, instance.id),
+            eq(approvalDecisions.stepOrder, step.stepOrder),
+            eq(approvalDecisions.decision, input.decision),
+          ),
+        )
+        .limit(1);
+      if (existingDecision) {
+        throw new AppError(
+          409,
+          'DUPLICATE_DECISION',
+          'That decision has already been recorded for this stage.',
+        );
+      }
+
+      await tx.insert(approvalDecisions).values({
+        approvalInstanceId: instance.id,
+        workflowStepId: step.id,
+        stepOrder: step.stepOrder,
+        stepName: step.stepName,
+        approverId: viewer.userId,
+        decision: input.decision,
+        remarks: input.comments || null,
+        decidedAt: now,
+      });
+
+      if (input.decision === 'REJECTED') {
+        await tx
+          .update(approvalInstances)
+          .set({ isActive: false, isCompleted: true, updatedAt: now })
+          .where(eq(approvalInstances.id, instance.id));
+        await tx
+          .update(venueRequests)
+          .set({
+            status: 'REJECTED',
+            rejectionReason: input.comments || null,
+            updatedAt: now,
+          })
+          .where(eq(venueRequests.id, requestId));
+        nextStatus = 'REJECTED';
+      } else if (input.decision === 'CHANGES_REQUESTED') {
+        await tx
+          .update(venueRequests)
+          .set({ status: 'SUBMITTED', rejectionReason: null, updatedAt: now })
+          .where(eq(venueRequests.id, requestId));
+        nextStatus = 'SUBMITTED';
+      } else {
+        const [nextStep] = await tx
+          .select({ stepOrder: workflowSteps.stepOrder })
+          .from(workflowSteps)
+          .where(
+            and(
+              eq(workflowSteps.workflowId, request.workflowId),
+              gt(workflowSteps.stepOrder, step.stepOrder),
+            ),
+          )
+          .orderBy(asc(workflowSteps.stepOrder))
+          .limit(1);
+
+        if (nextStep) {
+          await tx
+            .update(approvalInstances)
+            .set({ currentStepOrder: nextStep.stepOrder, updatedAt: now })
+            .where(eq(approvalInstances.id, instance.id));
+          await tx
+            .update(venueRequests)
+            .set({
+              status: 'IN_REVIEW',
+              currentStepOrder: nextStep.stepOrder,
+              rejectionReason: null,
+              updatedAt: now,
+            })
+            .where(eq(venueRequests.id, requestId));
+          nextStatus = 'IN_REVIEW';
+        } else {
+          await tx
+            .update(approvalInstances)
+            .set({ isActive: false, isCompleted: true, updatedAt: now })
+            .where(eq(approvalInstances.id, instance.id));
+          await tx
+            .update(venueRequests)
+            .set({
+              status: 'APPROVED_PENDING_ALLOTMENT',
+              rejectionReason: null,
+              updatedAt: now,
+            })
+            .where(eq(venueRequests.id, requestId));
+          nextStatus = 'APPROVED_PENDING_ALLOTMENT';
+        }
       }
     }
 
@@ -434,10 +619,16 @@ export async function decideRequest(
       actorId: viewer.userId,
       action:
         input.decision === 'APPROVED'
-          ? 'APPROVAL_APPROVED'
+          ? request.currentStepOrder === 0
+            ? 'FACULTY_ENDORSEMENT_APPROVED'
+            : 'APPROVAL_APPROVED'
           : input.decision === 'REJECTED'
-            ? 'APPROVAL_REJECTED'
-            : 'APPROVAL_CHANGES_REQUESTED',
+            ? request.currentStepOrder === 0
+              ? 'FACULTY_ENDORSEMENT_REJECTED'
+              : 'APPROVAL_REJECTED'
+            : request.currentStepOrder === 0
+              ? 'FACULTY_ENDORSEMENT_CHANGES_REQUESTED'
+              : 'APPROVAL_CHANGES_REQUESTED',
       entityName: 'venue_requests',
       entityId: requestId,
       oldState: {
@@ -448,10 +639,6 @@ export async function decideRequest(
         status: nextStatus,
         currentStepOrder: request.currentStepOrder,
         decision: input.decision,
-        stepOrder: step.stepOrder,
-        stepName: step.stepName,
-        comments: input.comments || null,
-        allotmentCreated: false,
       },
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,

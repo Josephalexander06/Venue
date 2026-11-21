@@ -12,8 +12,8 @@ import {
   WarningCircle,
 } from '@phosphor-icons/react';
 import { api, ApiError } from '../lib/api';
-import { usePageTitle } from '../auth';
-import { useToast, Alert, Button, PageHeader, Skeleton, TextField, TextareaField } from '../components/ui';
+import { useAuth, usePageTitle } from '../auth';
+import { useToast, Alert, Button, PageHeader, SelectField, Skeleton, TextField, TextareaField } from '../components/ui';
 import { VenueCalendar, type CalendarMode } from '../components/VenueCalendar';
 import {
   addDays,
@@ -38,6 +38,8 @@ export function VenueDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
+  const { user } = useAuth();
+  const isStudent = user?.roles.some((r) => r.role === 'STUDENT');
 
   const [mode, setMode] = useState<CalendarMode>('month');
   const [anchor, setAnchor] = useState(new Date());
@@ -49,6 +51,15 @@ export function VenueDetailPage() {
   const [description, setDescription] = useState('');
   const [attendance, setAttendance] = useState('30');
   const [draftEventId, setDraftEventId] = useState<string | null>(null);
+  const [facultyCoordinatorId, setFacultyCoordinatorId] = useState('');
+
+  const facultyQuery = useQuery({
+    queryKey: ['department-faculty', user?.department?.id],
+    queryFn: () => (user?.department?.id ? api.departmentFaculty(user.department.id) : { faculty: [] }),
+    enabled: Boolean(user?.department?.id) && Boolean(isStudent),
+    staleTime: 60_000,
+  });
+  const facultyMembers = facultyQuery.data?.faculty ?? [];
 
   const venueQuery = useQuery({
     queryKey: ['venue', id],
@@ -81,6 +92,9 @@ export function VenueDetailPage() {
       setTitle(event.title);
       setDescription(event.description ?? '');
       setAttendance(String(event.expectedAttendance));
+      if (event.facultyCoordinatorId) {
+        setFacultyCoordinatorId(event.facultyCoordinatorId);
+      }
       return;
     }
     const event = draftEventQuery.data?.event;
@@ -88,6 +102,9 @@ export function VenueDetailPage() {
       setTitle(event.title);
       setDescription(event.description ?? '');
       setAttendance(String(event.expectedAttendance));
+      if (event.facultyCoordinatorId) {
+        setFacultyCoordinatorId(event.facultyCoordinatorId);
+      }
     }
   }, [editQuery.data, draftEventQuery.data]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -168,7 +185,8 @@ export function VenueDetailPage() {
     capacityValid &&
     Boolean(timesValid) &&
     !hasConfirmedConflict &&
-    !availabilityQuery.isFetching;
+    !availabilityQuery.isFetching &&
+    (!isStudent || editing || Boolean(facultyCoordinatorId || draftEvent?.facultyCoordinatorId));
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -189,6 +207,13 @@ export function VenueDetailPage() {
       }
 
       if (draftEvent) {
+        if (
+          isStudent &&
+          facultyCoordinatorId &&
+          draftEvent.facultyCoordinatorId !== facultyCoordinatorId
+        ) {
+          await api.setEventCoordinator(draftEvent.id, facultyCoordinatorId);
+        }
         return api.createRequest({
           eventId: draftEvent.id,
           venueId: venue.id,
@@ -197,7 +222,10 @@ export function VenueDetailPage() {
         });
       }
 
-      const createdEvent = await api.createEvent(eventInput);
+      const createdEvent = await api.createEvent({
+        ...eventInput,
+        facultyCoordinatorId: facultyCoordinatorId || undefined,
+      });
       try {
         return await api.createRequest({
           eventId: createdEvent.event.id,
@@ -420,6 +448,36 @@ export function VenueDetailPage() {
               required
               error={submit.error ? fieldError(submit.error, 'event.expectedAttendance') : undefined}
             />
+
+            {isStudent && !editing && (
+              <div className="faculty-endorsement-banner">
+                <SelectField
+                  label="Designated faculty coordinator"
+                  name="booking-faculty-coordinator"
+                  value={facultyCoordinatorId}
+                  onChange={(e) => setFacultyCoordinatorId(e.target.value)}
+                  required
+                  hint="Mandatory faculty coordinator endorsement is required for student-submitted venue requests."
+                >
+                  <option value="">
+                    Select a faculty coordinator from {user?.department?.name ?? 'your department'}…
+                  </option>
+                  {facultyMembers.map((f) => (
+                    <option key={f.userId} value={f.userId}>
+                      {f.firstName} {f.lastName} ({f.email})
+                    </option>
+                  ))}
+                </SelectField>
+                <div className="workflow-route-preview">
+                  <span className="route-preview-badge">Workflow sequence:</span>
+                  <span className="route-step is-highlight">Stage 0: Faculty Endorsement</span>
+                  <span className="route-arrow">→</span>
+                  <span className="route-step">Venue Approvals</span>
+                  <span className="route-arrow">→</span>
+                  <span className="route-step">Final Allotment</span>
+                </div>
+              </div>
+            )}
 
             <div className="booking-time-grid">
               <TextField

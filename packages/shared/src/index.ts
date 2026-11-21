@@ -138,7 +138,13 @@ export const venueListQuerySchema = z.object({
 
 /* ---------------------------------------------------- approval workflows */
 
-export const APPROVER_ROLES = ['HOD', 'BURSAR', 'PRINCIPAL', 'ADMINISTRATOR'] as const;
+export const APPROVER_ROLES = [
+  'FACULTY',
+  'HOD',
+  'BURSAR',
+  'PRINCIPAL',
+  'ADMINISTRATOR',
+] as const;
 export type ApproverRole = (typeof APPROVER_ROLES)[number];
 
 export const WORKFLOW_SCOPE_TYPES = [
@@ -255,6 +261,24 @@ export const approvalInboxQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
+/* ---------------------------------------------------------- departments */
+
+export const departmentInputSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .min(2, 'Enter a department code.')
+    .max(20, 'Department code is too long.')
+    .toUpperCase(),
+  name: z.string().trim().min(2, 'Enter a department name.').max(100),
+});
+export type DepartmentInput = z.infer<typeof departmentInputSchema>;
+
+export const departmentUpdateSchema = departmentInputSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'Provide at least one department field.');
+export type DepartmentUpdateInput = z.infer<typeof departmentUpdateSchema>;
+
 /* --------------------------------------------------------------- events */
 
 export const eventInputSchema = z.object({
@@ -266,6 +290,7 @@ export const eventInputSchema = z.object({
     .min(1, 'Attendance must be at least 1.')
     .max(100000),
   departmentId: z.string().uuid().optional(),
+  facultyCoordinatorId: z.string().uuid().optional().nullable(),
 });
 export type EventInput = z.infer<typeof eventInputSchema>;
 
@@ -273,6 +298,33 @@ export const eventUpdateSchema = eventInputSchema
   .partial()
   .refine((value) => Object.keys(value).length > 0, 'Provide at least one event field.');
 export type EventUpdateInput = z.infer<typeof eventUpdateSchema>;
+
+export const eventCoordinatorSchema = z.object({
+  facultyCoordinatorId: z.string().uuid('Choose a valid faculty coordinator.'),
+});
+export type EventCoordinatorInput = z.infer<typeof eventCoordinatorSchema>;
+
+export const eventOrganizerSchema = z.object({
+  userId: z.string().uuid('Choose a valid user.'),
+});
+export type EventOrganizerInput = z.infer<typeof eventOrganizerSchema>;
+
+export interface EventTeamMember {
+  id: string;
+  userId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  department: { id: string; code: string; name: string };
+  assignedAt?: string;
+  assignedBy?: { id: string; firstName: string; lastName: string };
+}
+
+export interface EventTeamView {
+  creator: EventTeamMember;
+  facultyCoordinator: EventTeamMember | null;
+  organizers: EventTeamMember[];
+}
 
 export const ALLOTMENT_STATUSES = ['ACTIVE', 'CANCELLED', 'RELEASED'] as const;
 export type AllotmentStatus = (typeof ALLOTMENT_STATUSES)[number];

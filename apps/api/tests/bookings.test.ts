@@ -80,7 +80,7 @@ async function createVenue(overrides: Partial<typeof venues.$inferInsert> = {}) 
 async function studentSession(departmentCode = 'CS') {
   const { user, password } = await createTestUser({
     email: `student-${randomUUID()}@college.edu`,
-    role: 'STUDENT',
+    role: 'FACULTY',
     departmentCode,
   });
   return login(app, user.email, password);

@@ -83,7 +83,7 @@ describe('Phase 3 — Configurable approval workflows and lifecycle', () => {
         createTestUser({ role: 'HOD', departmentCode: 'ME', email: 'hod-me@college.edu' }),
         createTestUser({ role: 'BURSAR', email: 'bursar@college.edu' }),
         createTestUser({ role: 'PRINCIPAL', email: 'principal@college.edu' }),
-        createTestUser({ role: 'STUDENT', departmentCode: 'CS', email: 'student@college.edu' }),
+        createTestUser({ role: 'FACULTY', departmentCode: 'CS', email: 'student@college.edu' }),
       ]);
 
     // 1. Single-step workflow (HOD only)

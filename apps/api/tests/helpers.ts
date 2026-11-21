@@ -31,6 +31,7 @@ export async function resetDatabase() {
       approval_instances,
       venue_allotments,
       venue_requests,
+      event_organizers,
       events,
       user_roles,
       users,

@@ -107,8 +107,8 @@ describe('Phase 4 — Atomic venue allotment & conflict resolution engine', () =
       createTestUser({ role: 'HOD', departmentCode: 'ME', email: 'hod-me@college.edu' }),
       createTestUser({ role: 'BURSAR', email: 'bursar@college.edu' }),
       createTestUser({ role: 'PRINCIPAL', email: 'principal@college.edu' }),
-      createTestUser({ role: 'STUDENT', departmentCode: 'CS', email: 'student1@college.edu' }),
-      createTestUser({ role: 'STUDENT', departmentCode: 'CS', email: 'student2@college.edu' }),
+      createTestUser({ role: 'FACULTY', departmentCode: 'CS', email: 'student1@college.edu' }),
+      createTestUser({ role: 'FACULTY', departmentCode: 'CS', email: 'student2@college.edu' }),
       createTestUser({ role: 'FACULTY', departmentCode: 'ME', email: 'faculty-me@college.edu' }),
     ]);
 

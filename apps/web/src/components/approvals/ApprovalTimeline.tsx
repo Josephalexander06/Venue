@@ -69,6 +69,9 @@ export function ApprovalTimeline({
                   <span className="approval-role-badge">
                     {ROLE_LABELS[step.requiredRole]} · {WORKFLOW_SCOPE_LABELS[step.scopeType]}
                   </span>
+                  {step.stepOrder === 0 && (
+                    <span className="approval-endorsement-badge">Preliminary endorsement</span>
+                  )}
                   {step.isFinalAllotmentStep && (
                     <span className="approval-final-badge">Final allotment</span>
                   )}

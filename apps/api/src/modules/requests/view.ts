@@ -4,6 +4,10 @@ import { venueRequests, venues, type events } from '../../db/schema.js';
 export const requestSelection = {
   id: venueRequests.id,
   eventId: venueRequests.eventId,
+  submittedById: venueRequests.submittedById,
+  requiresFacultyEndorsement: venueRequests.requiresFacultyEndorsement,
+  facultyEndorserId: venueRequests.facultyEndorserId,
+  facultyEndorsedAt: venueRequests.facultyEndorsedAt,
   workflowId: venueRequests.workflowId,
   venueId: venueRequests.venueId,
   startTime: venueRequests.startTime,
@@ -24,6 +28,10 @@ export const requestSelection = {
 export interface RequestRow {
   id: string;
   eventId: string;
+  submittedById: string;
+  requiresFacultyEndorsement: boolean;
+  facultyEndorserId: string | null;
+  facultyEndorsedAt: Date | null;
   workflowId: string;
   venueId: string;
   startTime: Date;
@@ -44,6 +52,10 @@ export interface RequestRow {
 export interface RequestView {
   id: string;
   eventId: string;
+  submittedById: string;
+  requiresFacultyEndorsement: boolean;
+  facultyEndorserId: string | null;
+  facultyEndorsedAt: string | null;
   venue: {
     id: string;
     code: string;
@@ -68,6 +80,10 @@ export function mapRequestRow(row: RequestRow): RequestView {
   return {
     id: row.id,
     eventId: row.eventId,
+    submittedById: row.submittedById,
+    requiresFacultyEndorsement: row.requiresFacultyEndorsement,
+    facultyEndorserId: row.facultyEndorserId,
+    facultyEndorsedAt: row.facultyEndorsedAt ? row.facultyEndorsedAt.toISOString() : null,
     venue: {
       id: row.venueId,
       code: row.venueCode,
@@ -89,6 +105,13 @@ export function mapRequestRow(row: RequestRow): RequestView {
   };
 }
 
+export interface FacultyCoordinatorSummary {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+}
+
 export interface EventSummary {
   id: string;
   title: string;
@@ -96,6 +119,9 @@ export interface EventSummary {
   expectedAttendance: number;
   status: (typeof events.$inferSelect)['status'];
   department: { id: string; code: string; name: string };
+  facultyCoordinatorId?: string | null;
+  facultyCoordinator?: FacultyCoordinatorSummary | null;
+  creatorId?: string;
   createdAt: string;
   updatedAt: string;
 }
