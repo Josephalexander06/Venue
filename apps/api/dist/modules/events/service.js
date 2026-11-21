@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { approvalInstances, departments, eventOrganizers, events, roles, userRoles, users, venueAllotments, venueRequests, venues, } from '../../db/schema.js';
 import { writeAudit } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
@@ -366,6 +366,42 @@ export async function getEventTeam(db, eventId, viewer) {
         assignedAt: org.assignedAt.toISOString(),
     }));
     return { creator, facultyCoordinator, organizers };
+}
+export async function listOrganizerCandidates(db, eventId, viewer, search) {
+    const row = await findEventRow(db, eventId);
+    assertEventManageAccess(row, viewer);
+    const term = search?.trim();
+    const conditions = [eq(users.status, 'ACTIVE')];
+    if (term) {
+        const pattern = `%${term}%`;
+        conditions.push(or(ilike(users.email, pattern), ilike(users.firstName, pattern), ilike(users.lastName, pattern)));
+    }
+    const rows = await db
+        .select({
+        userId: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        departmentId: departments.id,
+        departmentCode: departments.code,
+        departmentName: departments.name,
+    })
+        .from(users)
+        .innerJoin(departments, eq(departments.id, users.departmentId))
+        .where(and(...conditions))
+        .orderBy(users.firstName, users.lastName)
+        .limit(10);
+    return rows.map((candidate) => ({
+        userId: candidate.userId,
+        firstName: candidate.firstName,
+        lastName: candidate.lastName,
+        email: candidate.email,
+        department: {
+            id: candidate.departmentId,
+            code: candidate.departmentCode,
+            name: candidate.departmentName,
+        },
+    }));
 }
 export async function setEventCoordinator(db, eventId, viewer, input, context) {
     const row = await findEventRow(db, eventId);

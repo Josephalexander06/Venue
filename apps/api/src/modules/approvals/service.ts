@@ -68,6 +68,7 @@ interface InboxRow {
   venueName: string;
   venueBuilding: string;
   venueFloor: number;
+  venueCapacity: number;
   creatorId: string;
   facultyCoordinatorId: string | null;
   title: string;

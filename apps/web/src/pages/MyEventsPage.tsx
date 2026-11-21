@@ -524,21 +524,21 @@ function EventCard({
                   View calendar
                 </Link>
                 {OPEN_STATUSES.has(request.status) && (
-                  <>
-                    <Link
-                      to={`/venues/${request.venue.id}?editRequest=${request.id}`}
-                      className="btn btn-secondary btn-sm"
-                    >
-                      Change slot
-                    </Link>
-                    <Button
-                      variant="danger-ghost"
-                      size="sm"
-                      onClick={() => onCancelRequest(request)}
-                    >
-                      Cancel
-                    </Button>
-                  </>
+                  <Link
+                    to={`/venues/${request.venue.id}?editRequest=${request.id}`}
+                    className="btn btn-secondary btn-sm"
+                  >
+                    Change slot
+                  </Link>
+                )}
+                {(OPEN_STATUSES.has(request.status) || request.status === 'CONFIRMED') && (
+                  <Button
+                    variant="danger-ghost"
+                    size="sm"
+                    onClick={() => onCancelRequest(request)}
+                  >
+                    {request.status === 'CONFIRMED' ? 'Cancel booking' : 'Cancel'}
+                  </Button>
                 )}
               </span>
             </li>

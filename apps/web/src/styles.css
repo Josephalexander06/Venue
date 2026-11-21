@@ -7003,7 +7003,7 @@ body:has(dialog[open]) {
   gap: 10px;
 }
 
-.add-organizer-row .form-field {
+.add-organizer-row .field {
   flex: 1;
   margin-bottom: 0;
 }
@@ -7054,4 +7054,61 @@ body:has(dialog[open]) {
 .route-arrow {
   color: var(--ink-3);
   font-size: 0.7rem;
+}
+
+/* ---------------------------------------------------- Phase 5 responsive */
+
+@media (max-width: 760px) {
+  .detail-header-actions,
+  .inbox-stats-pills {
+    flex-wrap: wrap;
+  }
+
+  .inbox-card-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .inbox-card-action {
+    width: 100%;
+  }
+
+  .inbox-card-action .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .inbox-card-grid,
+  .competitor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .approval-summary-card,
+  .approval-section-card {
+    padding: 16px;
+  }
+
+  .team-member-card {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .team-member-card .member-info {
+    min-width: calc(100% - 60px);
+  }
+
+  .member-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .add-organizer-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .add-organizer-row .btn {
+    width: 100%;
+    justify-content: center;
+  }
 }

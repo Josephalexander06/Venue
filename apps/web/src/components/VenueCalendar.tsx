@@ -14,6 +14,7 @@ import {
   formatTimeRange,
   monthGridRange,
   sameDay,
+  startOfDay,
   startOfMonth,
   startOfWeek,
 } from '../lib/datetime';
@@ -42,8 +43,13 @@ function overlaps(left: CalendarEntry, right: CalendarEntry) {
 }
 
 function entriesForDay(entries: CalendarEntry[], day: Date) {
-  const key = dateKey(day);
-  return entries.filter((entry) => dateKey(new Date(entry.startTime)) === key);
+  const dayStart = startOfDay(day).getTime();
+  const dayEnd = addDays(startOfDay(day), 1).getTime();
+  return entries.filter((entry) => {
+    const start = new Date(entry.startTime).getTime();
+    const end = new Date(entry.endTime).getTime();
+    return start < dayEnd && end > dayStart;
+  });
 }
 
 function entryTone(entry: CalendarEntry) {

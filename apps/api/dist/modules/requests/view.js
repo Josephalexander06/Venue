@@ -21,6 +21,7 @@ export const requestSelection = {
     venueName: venues.name,
     venueBuilding: venues.building,
     venueFloor: venues.floor,
+    venueCapacity: venues.capacity,
 };
 export function mapRequestRow(row) {
     return {
@@ -36,6 +37,7 @@ export function mapRequestRow(row) {
             name: row.venueName,
             building: row.venueBuilding,
             floor: row.venueFloor,
+            capacity: row.venueCapacity,
         },
         startTime: row.startTime.toISOString(),
         endTime: row.endTime.toISOString(),

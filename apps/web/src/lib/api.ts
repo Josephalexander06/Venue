@@ -128,7 +128,14 @@ export interface RequestView {
   requiresFacultyEndorsement?: boolean;
   facultyEndorserId?: string | null;
   facultyEndorsedAt?: string | null;
-  venue: { id: string; code: string; name: string; building: string; floor: number };
+  venue: {
+    id: string;
+    code: string;
+    name: string;
+    building: string;
+    floor: number;
+    capacity: number;
+  };
   startTime: string;
   endTime: string;
   effectiveStart: string;
@@ -179,6 +186,14 @@ export interface EventTeamView {
 
 export interface FacultyMember {
   id: string;
+  userId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  department: { id: string; code: string; name: string };
+}
+
+export interface OrganizerCandidate {
   userId: string;
   firstName: string;
   lastName: string;
@@ -679,6 +694,12 @@ export const api = {
 
   eventTeam(eventId: string) {
     return request<{ team: EventTeamView }>(`/events/${eventId}/team`);
+  },
+
+  organizerCandidates(eventId: string, search: string) {
+    return request<{ candidates: OrganizerCandidate[] }>(
+      `/events/${eventId}/organizer-candidates?search=${encodeURIComponent(search)}`,
+    );
   },
 
   setEventCoordinator(eventId: string, facultyCoordinatorId: string) {

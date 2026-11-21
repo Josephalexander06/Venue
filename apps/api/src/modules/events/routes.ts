@@ -16,6 +16,7 @@ import {
   getEventTeam,
   getEventView,
   listMyEvents,
+  listOrganizerCandidates,
   removeEventOrganizer,
   setEventCoordinator,
   updateEvent,
@@ -25,6 +26,9 @@ const idParamsSchema = z.object({ id: z.string().uuid() });
 const organizerParamsSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
+});
+const candidateQuerySchema = z.object({
+  search: z.string().trim().max(100).optional(),
 });
 
 function viewerFrom(request: { auth?: { user: { id: string; roles: { role: string }[] } } }) {
@@ -90,6 +94,14 @@ const eventRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) =>
     const { id } = parseInput(idParamsSchema, request.params);
     return {
       team: await getEventTeam(db, id, viewerFrom(request)),
+    };
+  });
+
+  app.get('/events/:id/organizer-candidates', bookingOnly, async (request) => {
+    const { id } = parseInput(idParamsSchema, request.params);
+    const { search } = parseInput(candidateQuerySchema, request.query);
+    return {
+      candidates: await listOrganizerCandidates(db, id, viewerFrom(request), search),
     };
   });
 

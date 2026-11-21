@@ -256,7 +256,8 @@ export function ApprovalDetailPage() {
                 <span className="summary-label">Venue</span>
                 <strong>{request.venue.name}</strong>
                 <span>
-                  <MapPin size={14} /> {request.venue.building} · Floor {request.venue.floor}
+                  <MapPin size={14} /> {request.venue.building} · Floor {request.venue.floor} ·{' '}
+                  {request.venue.capacity} capacity
                 </span>
               </div>
               <div className="summary-item">
@@ -345,7 +346,7 @@ export function ApprovalDetailPage() {
             <CompetitorComparison
               currentRequestId={request.id}
               conflicts={conflicts.pending}
-              venueCapacity={0}
+              venueCapacity={request.venue.capacity}
             />
           )}
 

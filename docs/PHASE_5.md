@@ -66,6 +66,7 @@ Phase 5 extends the College Venue Booking and Approval Management System with co
 
 ### 4.2 Event Collaboration Endpoints (`/api/v1/events`)
 - `GET /api/v1/events/:id/team`: Returns full event roster (creator, assigned faculty coordinator, organizers).
+- `GET /api/v1/events/:id/organizer-candidates?search=`: Scoped active-user lookup for event managers (creator, faculty coordinator or administrator). Returns only id, name, email and department; outsiders receive `403`.
 - `POST /api/v1/events/:id/coordinator`: Assigns or updates the event's designated faculty coordinator with departmental scope verification.
 - `POST /api/v1/events/:id/organizers`: Adds a co-organizer to the event team.
 - `DELETE /api/v1/events/:id/organizers/:userId`: Removes co-organizer privileges from an event.
@@ -87,29 +88,54 @@ Phase 5 extends the College Venue Booking and Approval Management System with co
 ### 5.2 Event Collaboration & Team Management
 - Created `apps/web/src/components/EventTeamDialog.tsx` accessible directly from `MyEventsPage`.
 - Displays creator badge, coordinator card with status pill, department faculty dropdown selector, and student organizer management.
-- Handles user lookup by email with validation preventing self-addition or duplicates.
+- Organizer lookup now uses the event-scoped `/organizer-candidates` endpoint instead of the administrator-only user directory, so student creators and faculty coordinators can add co-organizers without elevated privileges.
+- Managers (creator, faculty coordinator, administrator) can assign the coordinator and add or remove organizers; duplicate and self-addition attempts remain blocked by both UI and API validation.
 
 ### 5.3 Booking Wizard Enhancements (`VenueDetailPage`)
 - For student submissions:
   - Dynamically displays designated faculty coordinator selector populated with department faculty.
   - Visual approval route preview: `Stage 0: Faculty Endorsement` → `Venue Approvals` → `Final Allotment`.
   - Automatically links or sets the coordinator upon submission.
+- Multi-day calendar entries now appear on every day they span rather than only their start date.
 
 ### 5.4 Approval Tracking & Decision Views
 - `MyEventsPage`: Renders faculty coordinator badges on event cards and endorsement status pills on booking rows.
 - `ApprovalTimeline`: Clearly renders Stage 0 with a dedicated "Preliminary endorsement" badge and decision remarks.
 - `ApprovalDetailPage`: Displays submitter details, faculty coordinator oversight information, and endorsement status blocks.
+- `APPROVED_PENDING_ALLOTMENT` is labelled **Approved — pending allotment** so it is visually distinct from `CONFIRMED`.
+- Competitor comparison receives the real venue capacity, so attendance-to-capacity ratios are accurate.
+
+### 5.5 Booking Cancellation & Status Lifecycle
+- Organizers can now cancel **confirmed** bookings directly from `MyEventsPage`; the action releases the active allotment and GiST slot through the existing request-cancellation endpoint.
+- Open requests retain the existing cancel action, and critical slot edits still restart the approval workflow.
+- Cancelling the last remaining request for an event follows the existing event-cancellation rule.
+
+### 5.6 Responsive & Accessible Layout
+- Added mobile/tablet layout rules for approval inbox cards, competitor comparison grids, approval summary cards, team-member rows and organizer forms.
+- Approval and team actions wrap instead of overflowing on narrow screens.
+- Fixed the organizer form field flex selector so the email input and button share the row correctly on desktop.
+- Playwright now verifies desktop, tablet (834px) and mobile (Pixel 7) viewports for horizontal overflow and key navigation.
 
 ---
 
 ## 6. Automated Test Coverage & Verification
 
-All automated tests across all 6 test suites pass with 100% success rate:
+All automated API tests across all 6 test suites pass with 100% success rate:
 
 ```
 Test Files  6 passed (6)
      Tests  54 passed (54)
-  Duration  22.70s
+  Duration  18.81s
+```
+
+Playwright browser journeys also pass on desktop, tablet and mobile:
+
+```
+Running 3 tests using 1 worker
+  ✓ desktop-chromium  registration, approval, booking, endorsement and final allotment journey
+  ✓ tablet-chromium   mobile venue calendar and booking form stay usable
+  ✓ mobile-chromium   mobile venue calendar and booking form stay usable
+  3 passed (46.6s)
 ```
 
 ### Test Suites:
@@ -122,6 +148,7 @@ Test Files  6 passed (6)
    - Mandatory faculty coordinator validation before student submission (`400 FACULTY_COORDINATOR_REQUIRED`).
    - Rejection of cross-department or non-faculty coordinator assignments (`400 COORDINATOR_DEPARTMENT_MISMATCH` / `INVALID_FACULTY_COORDINATOR`).
    - Co-organizer addition, team inspection, and organizer submission privileges.
+   - Event-scoped organizer candidate search for managers, with outsider enumeration blocked (`403`).
    - Non-collaborator access rejection (`403 EVENT_ACCESS_FORBIDDEN`).
    - Assigned faculty coordinator inbox discovery and Stage 0 endorsement approval advancing to Stage 1.
    - Unauthorized faculty decision blocking (`403 APPROVAL_FORBIDDEN`) and self-approval blocking (`403 SELF_APPROVAL_FORBIDDEN`).
@@ -132,8 +159,21 @@ Test Files  6 passed (6)
 ---
 
 ## 7. Build, Lint & Typecheck Verification
-- Shared package: `node_modules/.bin/tsc --build` -> Clean.
-- Backend API: `apps/api/node_modules/.bin/tsc --build` -> Clean.
-- Frontend Web: `apps/web/node_modules/.bin/tsc --build` -> Clean.
-- Frontend Production: `apps/web/node_modules/.bin/vite build` -> Built in 732ms.
-- Code Quality: `node_modules/.bin/eslint .` -> 0 errors, 0 warnings.
+Run from the repository root:
+
+| Command | Result |
+| --- | --- |
+| `pnpm test` | 6 files, 54 tests passed |
+| `pnpm typecheck` | Shared, API and Web packages clean |
+| `pnpm lint` | 0 errors, 0 warnings |
+| `pnpm build` | Shared, API and Web production builds succeeded |
+| `pnpm test:e2e` | 3 browser projects passed |
+
+The previous typecheck failure in `apps/api/tests/collaboration.test.ts` (inserting a non-existent `isActive` column into `approval_workflows`) was fixed. The booking journey was updated to create and approve a faculty coordinator before selecting them, reflecting the mandatory Phase 5 endorsement rule.
+
+## 8. Known Limitations
+- The booking flow remains a single, calendar-driven form rather than a multi-step wizard; it already validates conflicts and routes approval correctly, so it was not rewritten.
+- Approval inbox pagination is not exposed in the UI; the page requests the first 50 eligible requests.
+- Administrator suspension/reactivation actions are not exposed because no matching API endpoint exists yet.
+- Request-change feedback is visible in the status dialog and timeline but not inline on the My Events card.
+- Calendar month cells intentionally show requests by their start/end dates only; buffer-only overlaps are surfaced in the conflict panels, not as separate calendar days.

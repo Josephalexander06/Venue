@@ -112,23 +112,21 @@ export function EventTeamDialog({ event, onClose }: EventTeamDialogProps) {
     if (!email) return;
 
     try {
-      const usersRes = await api.adminUsers({ search: email, limit: 5 });
-      const matched = usersRes.users.find(
-        (u) => u.email.toLowerCase() === email && u.status === 'ACTIVE',
-      );
+      const { candidates } = await api.organizerCandidates(event.id, email);
+      const matched = candidates.find((candidate) => candidate.email.toLowerCase() === email);
       if (!matched) {
         setOrganizerSearchError('No active user found with this email address.');
         return;
       }
-      if (team?.creator.userId === matched.id) {
+      if (team?.creator.userId === matched.userId) {
         setOrganizerSearchError('The event creator is already the primary organizer.');
         return;
       }
-      if (team?.organizers.some((org) => org.userId === matched.id)) {
+      if (team?.organizers.some((org) => org.userId === matched.userId)) {
         setOrganizerSearchError('This user is already an organizer for this event.');
         return;
       }
-      await addOrgMutation.mutateAsync(matched.id);
+      await addOrgMutation.mutateAsync(matched.userId);
     } catch (err) {
       if (err instanceof ApiError) {
         setOrganizerSearchError(err.message);
@@ -139,7 +137,10 @@ export function EventTeamDialog({ event, onClose }: EventTeamDialogProps) {
   }
 
   const isCreatorOrAdmin =
-    isAdmin || team?.creator.userId === user?.id || event.creatorId === user?.id;
+    isAdmin ||
+    team?.creator.userId === user?.id ||
+    team?.facultyCoordinator?.userId === user?.id ||
+    event.creatorId === user?.id;
 
   return (
     <Dialog

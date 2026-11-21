@@ -296,7 +296,7 @@ export const REQUEST_STATUSES = [
 export const REQUEST_STATUS_LABELS = {
     SUBMITTED: 'Submitted',
     IN_REVIEW: 'In review',
-    APPROVED_PENDING_ALLOTMENT: 'Preliminary approval',
+    APPROVED_PENDING_ALLOTMENT: 'Approved — pending allotment',
     CONFIRMED: 'Confirmed',
     REJECTED: 'Rejected',
     SUPERSEDED_CONFLICT: 'Superseded',

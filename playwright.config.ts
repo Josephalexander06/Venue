@@ -28,6 +28,11 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 960 } },
     },
     {
+      name: 'tablet-chromium',
+      testMatch: '**/mobile.spec.ts',
+      use: { ...devices['Desktop Chrome'], viewport: { width: 834, height: 1112 } },
+    },
+    {
       name: 'mobile-chromium',
       testMatch: '**/mobile.spec.ts',
       use: { ...devices['Pixel 7'] },

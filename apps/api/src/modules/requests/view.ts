@@ -23,6 +23,7 @@ export const requestSelection = {
   venueName: venues.name,
   venueBuilding: venues.building,
   venueFloor: venues.floor,
+  venueCapacity: venues.capacity,
 };
 
 export interface RequestRow {
@@ -47,6 +48,7 @@ export interface RequestRow {
   venueName: string;
   venueBuilding: string;
   venueFloor: number;
+  venueCapacity: number;
 }
 
 export interface RequestView {
@@ -62,6 +64,7 @@ export interface RequestView {
     name: string;
     building: string;
     floor: number;
+    capacity: number;
   };
   startTime: string;
   endTime: string;
@@ -90,6 +93,7 @@ export function mapRequestRow(row: RequestRow): RequestView {
       name: row.venueName,
       building: row.venueBuilding,
       floor: row.venueFloor,
+      capacity: row.venueCapacity,
     },
     startTime: row.startTime.toISOString(),
     endTime: row.endTime.toISOString(),

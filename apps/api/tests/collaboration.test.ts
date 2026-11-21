@@ -43,7 +43,6 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
       .values({
         name: 'HOD Only Workflow',
         description: 'Single step HOD approval',
-        isActive: true,
       })
       .returning();
 
@@ -205,6 +204,25 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
       },
     });
     const { event } = eventRes.json();
+
+    // Event managers can search active users for co-organizer assignment
+    const candidatesRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/events/${event.id}/organizer-candidates?search=${encodeURIComponent(organizer.user.email)}`,
+      headers: mutationHeaders(creatorSession),
+    });
+    expect(candidatesRes.statusCode).toBe(200);
+    expect(candidatesRes.json().candidates.map((c: { userId: string }) => c.userId)).toContain(
+      organizer.user.id,
+    );
+
+    // Outsiders cannot enumerate users through the event team endpoint
+    const forbiddenCandidatesRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/events/${event.id}/organizer-candidates?search=college.edu`,
+      headers: mutationHeaders(outsiderSession),
+    });
+    expect(forbiddenCandidatesRes.statusCode).toBe(403);
 
     // Add organizer
     const addOrgRes = await app.inject({
