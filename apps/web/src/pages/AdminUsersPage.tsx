@@ -1,4 +1,5 @@
 import { useDeferredValue, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   useMutation,
   useQuery,
@@ -10,7 +11,6 @@ import {
   ArrowLeft,
   ArrowRight,
   MagnifyingGlass,
-  ShieldCheck,
   UsersThree,
   X,
 } from '@phosphor-icons/react';
@@ -49,8 +49,10 @@ interface DialogTarget {
 }
 
 export function AdminUsersPage() {
-  usePageTitle('User approvals');
-  const [status, setStatus] = useState<StatusFilter>('ALL');
+  usePageTitle('Users');
+  const [params, setParams] = useSearchParams();
+  const status = FILTERS.find(({ value }) => value === params.get('status'))?.value ?? 'ALL';
+  const setStatus = (value: StatusFilter) => setParams(value === 'ALL' ? {} : { status: value });
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
   const [offset, setOffset] = useState(0);
@@ -117,15 +119,8 @@ export function AdminUsersPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Access control"
         title="User accounts"
-        description="Review new registrations, assign roles and audit the access held across the college."
-        actions={
-          <span className="header-chip">
-            <ShieldCheck size={16} />
-            Administrator only
-          </span>
-        }
+        description="Review registrations, assign roles and manage account access."
       />
 
       {users.isError && (
@@ -203,7 +198,7 @@ export function AdminUsersPage() {
               </div>
             ))}
           </div>
-        ) : result && result.users.length === 0 ? (
+        ) : users.isError && !result ? null : result && result.users.length === 0 ? (
           <EmptyState
             icon={<UsersThree size={28} weight="duotone" />}
             title={hasSearch ? 'No matching accounts' : 'No accounts in this view'}

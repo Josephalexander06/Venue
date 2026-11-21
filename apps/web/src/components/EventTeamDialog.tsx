@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ChalkboardTeacher,
-  CheckCircle,
   Plus,
   Trash,
   UsersThree,
@@ -146,8 +145,8 @@ export function EventTeamDialog({ event, onClose }: EventTeamDialogProps) {
     <Dialog
       open
       onClose={onClose}
-      title="Event collaboration & team"
-      description={`Manage organizers and faculty oversight for "${event.title}".`}
+      title="Event team"
+      description={event.title}
       footer={
         <Button variant="ghost" size="md" onClick={onClose}>
           Done
@@ -170,9 +169,9 @@ export function EventTeamDialog({ event, onClose }: EventTeamDialogProps) {
             <div className="team-section-header">
               <ChalkboardTeacher size={20} weight="fill" className="text-primary" />
               <div>
-                <h4>Designated Faculty Coordinator</h4>
+                <h3>Faculty coordinator</h3>
                 <p className="team-section-hint">
-                  Required before student organizers can request venues. Coordinates and endorses preliminary requests.
+                  The coordinator endorses venue requests made by students.
                 </p>
               </div>
             </div>
@@ -193,17 +192,13 @@ export function EventTeamDialog({ event, onClose }: EventTeamDialogProps) {
                     {team.facultyCoordinator.department.name} ({team.facultyCoordinator.department.code})
                   </span>
                 </div>
-                <div className="member-badge">
-                  <span className="endorsement-pill is-endorsed">
-                    <CheckCircle size={14} weight="fill" /> Assigned Coordinator
-                  </span>
-                </div>
+
               </div>
             ) : (
               <div className="team-alert-missing">
                 <WarningCircle size={20} className="text-amber" />
                 <div className="alert-copy">
-                  <strong>No Faculty Coordinator Assigned</strong>
+                  <strong>No coordinator assigned</strong>
                   <p>Students cannot submit venue requests until an active faculty member from {event.department.code} is assigned.</p>
                 </div>
               </div>
@@ -250,9 +245,9 @@ export function EventTeamDialog({ event, onClose }: EventTeamDialogProps) {
             <div className="team-section-header">
               <UsersThree size={20} weight="fill" className="text-primary" />
               <div>
-                <h4>Event Organizers</h4>
+                <h3>Organizers</h3>
                 <p className="team-section-hint">
-                  Authorized co-organizers who can submit booking requests and coordinate details.
+                  Organizers can submit venue requests for this event.
                 </p>
               </div>
             </div>
@@ -307,7 +302,7 @@ export function EventTeamDialog({ event, onClose }: EventTeamDialogProps) {
             {isCreatorOrAdmin && (
               <form className="add-organizer-row" onSubmit={handleAddOrganizer}>
                 <TextField
-                  label="Add student or faculty co-organizer by email"
+                  label="Organizer’s college email"
                   name="organizer-email"
                   type="email"
                   value={organizerEmail}

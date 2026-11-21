@@ -69,7 +69,7 @@ export function ApprovalDecisionDialog({
       open
       onClose={onClose}
       title="Record approval decision"
-      description={`Stage: ${stepName}. Choose your decision and provide remarks if needed.`}
+      description={stepName}
       footer={
         <>
           <Button variant="ghost" size="md" onClick={onClose} disabled={decide.isPending}>
@@ -119,7 +119,7 @@ export function ApprovalDecisionDialog({
                 <CheckCircle size={18} weight="fill" /> Approve
               </span>
               <span className="decision-option-desc">
-                Advances the request to the next workflow step or marks it ready for final allotment.
+                Advance the request to its next stage.
               </span>
             </span>
           </label>
@@ -142,7 +142,7 @@ export function ApprovalDecisionDialog({
                 <WarningCircle size={18} weight="fill" /> Request changes
               </span>
               <span className="decision-option-desc">
-                Returns the request to the organizer to update details. Re-starts from this stage.
+                Return the request to the organizer with feedback.
               </span>
             </span>
           </label>
@@ -165,7 +165,7 @@ export function ApprovalDecisionDialog({
                 <Prohibit size={18} weight="fill" /> Reject
               </span>
               <span className="decision-option-desc">
-                Denies the request and halts the approval process permanently.
+                Close this booking request.
               </span>
             </span>
           </label>

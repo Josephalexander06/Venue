@@ -1,259 +1,164 @@
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ROLE_LABELS } from '@venue/shared';
-import {
-  ArrowRight,
-  CalendarBlank,
-  CheckCircle,
-  ClockCountdown,
-  EnvelopeSimple,
-  IdentificationBadge,
-  ShieldCheck,
-  UsersThree,
-} from '@phosphor-icons/react';
-import { api } from '../lib/api';
+import { ArrowRight, CalendarBlank, CheckSquareOffset, Plus } from '@phosphor-icons/react';
+import type { RoleName } from '@venue/shared';
 import { useAuth, usePageTitle } from '../auth';
-import { greeting, plural, todayLabel } from '../lib/format';
-import { Avatar, ROLE_DESCRIPTIONS, Skeleton, StatusBadge } from '../components/ui';
+import { RequestStatusBadge } from '../components/booking';
+import { Alert, EmptyState, PageHeader, Skeleton } from '../components/ui';
+import { api } from '../lib/api';
+import { formatTimeRange } from '../lib/datetime';
+import { formatDate, greeting, todayLabel } from '../lib/format';
+
+const REVIEW_FOCUS = {
+  HOD: 'Review departmental requests and check the schedule before endorsing a booking.',
+  PRINCIPAL: 'Review requests routed to the Principal and inspect any competing bookings before deciding.',
+  BURSAR: 'Review requests routed to the Bursar and check venue and schedule details before deciding.',
+  FACULTY: 'Coordinate your events and endorse requests for the student events you supervise.',
+} satisfies Partial<Record<RoleName, string>>;
 
 export function HomePage() {
   usePageTitle('Home');
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isApprover, isFacultyOnlyApprover, hasRole } = useAuth();
 
-  const stats = useQuery({
-    queryKey: ['admin', 'stats'],
-    queryFn: api.adminStats,
-    enabled: isAdmin,
+  const queue = useQuery({
+    queryKey: ['approvals', 'inbox-preview'],
+    queryFn: () => api.approvalInbox({ limit: 3 }),
+    enabled: isApprover && !isAdmin,
     staleTime: 15_000,
-    retry: false,
+  });
+
+  const events = useQuery({
+    queryKey: ['my-events'],
+    queryFn: api.myEvents,
+    enabled: !isAdmin,
   });
 
   if (!user) return null;
-  const pending = stats.data?.counts.PENDING_APPROVAL;
-  const active = stats.data?.counts.ACTIVE;
+  if (isAdmin) return <Navigate to="/admin" replace />;
+
+  const focus = (['PRINCIPAL', 'BURSAR', 'HOD', 'FACULTY'] as const).find(hasRole);
+  const recent = events.data?.events.filter((event) => event.status !== 'CANCELLED').slice(0, 5) ?? [];
+  const inboxLabel = isFacultyOnlyApprover ? 'Endorsements' : 'Requests awaiting review';
+  const eventList = (
+    <section className="card workspace-panel" aria-labelledby="home-events">
+      <div className="card-head">
+        <div>
+          <h2 id="home-events">{isApprover ? 'Your events' : 'Recent events'}</h2>
+          <p>{isApprover ? 'Events you lead, coordinate or help organize.' : 'Follow booking progress and pick up your drafts.'}</p>
+        </div>
+        <Link to="/my-events" className="text-link">View all <ArrowRight size={15} aria-hidden="true" /></Link>
+      </div>
+      {events.isPending ? (
+        <HomeRowsLoading label="Loading events" />
+      ) : events.isError ? (
+        <Alert tone="danger" title="Could not load events">
+          <button className="inline-link" onClick={() => void events.refetch()}>Try again</button>
+        </Alert>
+      ) : recent.length === 0 ? (
+        <EmptyState
+          icon={<CalendarBlank size={24} />}
+          title="No active events"
+          description="Create an event to start planning, or browse venues to choose a slot first."
+        />
+      ) : (
+        <ul className="workspace-rows">
+          {recent.map((event) => {
+            const request = event.requests[0];
+            return (
+              <li key={event.id}>
+                <Link to={request ? `/my-events?highlight=${request.id}#event-${event.id}` : `/my-events#event-${event.id}`}>
+                  <span>
+                    <strong>{event.title}</strong>
+                    <span>{request ? `${request.venue.name} · ${formatDate(request.startTime)}` : 'Venue selection needed'}</span>
+                  </span>
+                  {request ? <RequestStatusBadge status={request.status} /> : <span>Draft</span>}
+                  <ArrowRight size={16} aria-hidden="true" />
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
 
   return (
     <>
-      <section className="welcome-band">
-        <div className="welcome-copy">
-          <p className="eyebrow">{todayLabel()}</p>
-          <h1>
-            {greeting()}, {user.firstName}.
-          </h1>
-          <p>
-            Your account is active. Everything you can access from this workspace is tied to
-            your role and department.
-          </p>
-          <div className="welcome-actions">
-            {isAdmin ? (
-              <Link to="/admin/users" className="btn btn-accent btn-md">
-                Review access requests
-                <ArrowRight size={17} aria-hidden="true" />
-              </Link>
-            ) : (
-              <Link to="/venues" className="btn btn-accent btn-md">
-                Browse campus venues
-                <ArrowRight size={17} aria-hidden="true" />
-              </Link>
-            )}
-            <Link to={isAdmin ? '/admin' : '/my-events'} className="btn btn-quiet btn-md">
-              {isAdmin ? 'Admin overview' : 'My events'}
+      <PageHeader
+        eyebrow={todayLabel()}
+        title={`${greeting()}, ${user.firstName}`}
+        description={focus ? REVIEW_FOCUS[focus] : 'Find a campus venue, plan an event and track your booking requests.'}
+        actions={
+          <>
+            <Link to="/my-events?create=1" className="btn btn-secondary btn-md">
+              <Plus size={17} aria-hidden="true" /> Create event
             </Link>
-          </div>
-        </div>
-        <div className="welcome-emblem" aria-hidden="true">
-          <span className="welcome-ring welcome-ring-outer" />
-          <span className="welcome-ring welcome-ring-inner" />
-          <span className="welcome-seal">
-            <ShieldCheck size={42} weight="duotone" />
-            <span>Verified</span>
-          </span>
-          <span className="welcome-emblem-name">{user.department.code}</span>
-        </div>
-      </section>
+            <Link to={isApprover ? '/approvals' : '/venues'} className="btn btn-primary btn-md">
+              {isFacultyOnlyApprover ? 'Review endorsements' : isApprover ? 'Review requests' : 'Browse campus venues'}
+              <ArrowRight size={17} aria-hidden="true" />
+            </Link>
+          </>
+        }
+      />
 
-      <div className="home-grid">
-        <div className="home-main">
-          <section className="card" aria-labelledby="access-heading">
+      <div className={isApprover ? 'workspace-grid' : 'workspace-grid workspace-grid-single'}>
+        {isApprover && (
+          <section className="card workspace-panel" aria-labelledby="home-queue">
             <div className="card-head">
               <div>
-                <h2 id="access-heading">Your access</h2>
-                <p>Roles assigned to your account and the scope they carry.</p>
+                <h2 id="home-queue">{inboxLabel}</h2>
+                {queue.data && <p>{queue.data.total} awaiting a decision</p>}
               </div>
-              <span className="card-icon">
-                <IdentificationBadge size={20} />
-              </span>
+              <Link to="/approvals" className="text-link">Open inbox <ArrowRight size={15} aria-hidden="true" /></Link>
             </div>
-            <ul className="access-list">
-              {user.roles.map((entry) => (
-                <li key={`${entry.role}-${entry.departmentId ?? 'college'}`} className="access-row">
-                  <span className={`access-check role-${entry.role.toLowerCase()}`}>
-                    <CheckCircle size={17} weight="fill" />
-                  </span>
-                  <span className="access-copy">
-                    <span className="access-title">{ROLE_LABELS[entry.role]}</span>
-                    <span className="access-description">{ROLE_DESCRIPTIONS[entry.role]}</span>
-                  </span>
-                  <span className="access-scope">
-                    {entry.departmentId ? user.department.code : 'College-wide'}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <p className="card-footnote">
-              Need a different role? Ask an administrator to update your access.
-            </p>
-          </section>
-
-          {isAdmin && (
-            <section className="card" aria-labelledby="admin-heading">
-              <div className="card-head">
-                <div>
-                  <h2 id="admin-heading">Administrator workspace</h2>
-                  <p>Review new accounts and keep departmental access accurate.</p>
-                </div>
-                <span className="card-icon card-icon-accent">
-                  <UsersThree size={20} />
-                </span>
-              </div>
-              <div className="admin-glance">
-                <div className="glance-item">
-                  <span className="glance-icon glance-pending">
-                    <ClockCountdown size={20} />
-                  </span>
-                  <span>
-                    <strong>
-                      {pending === undefined ? <Skeleton className="skeleton-number" /> : pending}
-                    </strong>
-                    <span>
-                      {pending === undefined
-                        ? 'Checking the queue'
-                        : `${plural(pending, 'account')} awaiting review`}
-                    </span>
-                  </span>
-                </div>
-                <div className="glance-item">
-                  <span className="glance-icon glance-active">
-                    <CheckCircle size={20} />
-                  </span>
-                  <span>
-                    <strong>
-                      {active === undefined ? <Skeleton className="skeleton-number" /> : active}
-                    </strong>
-                    <span>
-                      {active === undefined
-                        ? 'Checking accounts'
-                        : plural(active, 'active account')}
-                    </span>
-                  </span>
-                </div>
-              </div>
-              <div className="inline-actions">
-                <Link to="/admin/users" className="btn btn-secondary btn-sm">
-                  Open approval queue <ArrowRight size={15} />
-                </Link>
-                <Link to="/admin/venues" className="btn btn-ghost btn-sm">
-                  Manage venues
-                </Link>
-              </div>
-            </section>
-          )}
-
-          {!isAdmin && (
-            <section className="card" aria-labelledby="venues-heading">
-              <div className="card-head">
-                <div>
-                  <h2 id="venues-heading">Campus venue services</h2>
-                  <p>Find a space, check live availability and submit a booking request.</p>
-                </div>
-                <span className="card-icon">
-                  <CalendarBlank size={20} />
-                </span>
-              </div>
-              <div className="module-preview">
-                <span className="module-preview-icon">
-                  <CalendarBlank size={26} weight="duotone" />
-                </span>
-                <div>
-                  <strong>Your next event starts here</strong>
-                  <p>
-                    Browse every active venue, view confirmed and pending bookings on its
-                    calendar, and apply for the slot you need in one flow.
-                  </p>
-                  <div className="inline-actions">
-                    <Link to="/venues" className="btn btn-primary btn-sm">
-                      Find a venue <ArrowRight size={15} />
-                    </Link>
-                    <Link to="/my-events" className="btn btn-ghost btn-sm">
-                      Track my requests
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            </section>
-          )}
-        </div>
-
-        <aside className="home-side">
-          <section className="card" aria-labelledby="account-heading">
-            <div className="card-head">
-              <div>
-                <h2 id="account-heading">Account</h2>
-              </div>
-              <span className="card-icon">
-                <EnvelopeSimple size={20} />
-              </span>
-            </div>
-            <div className="account-summary">
-              <Avatar
-                firstName={user.firstName}
-                lastName={user.lastName}
-                size="lg"
+            {queue.isPending ? (
+              <HomeRowsLoading label="Loading requests" />
+            ) : queue.isError ? (
+              <Alert tone="danger" title="Could not load the approval queue">
+                <button className="inline-link" onClick={() => void queue.refetch()}>Try again</button>
+              </Alert>
+            ) : queue.data.items.length === 0 ? (
+              <EmptyState
+                icon={<CheckSquareOffset size={24} />}
+                title="You’re caught up"
+                description="Requests will appear when they reach a stage you can review."
               />
-              <div>
-                <strong>
-                  {user.firstName} {user.lastName}
-                </strong>
-                <span>{user.email}</span>
-              </div>
-            </div>
-            <dl className="detail-list">
-              <div>
-                <dt>Status</dt>
-                <dd>
-                  <StatusBadge status={user.status} />
-                </dd>
-              </div>
-              <div>
-                <dt>Department</dt>
-                <dd>{user.department.name}</dd>
-              </div>
-              <div>
-                <dt>Access scope</dt>
-                <dd>
-                  {user.roles.some((entry) => entry.departmentId)
-                    ? user.department.name
-                    : 'College-wide'}
-                </dd>
-              </div>
-            </dl>
-            <Link to="/account" className="text-link">
-              View full account <ArrowRight size={14} />
-            </Link>
+            ) : (
+              <ul className="workspace-rows">
+                {queue.data.items.map(({ event, request, step, conflicts }) => (
+                  <li key={request.id}>
+                    <Link to={`/approvals/${request.id}`}>
+                      <span>
+                        <strong>{event.title}</strong>
+                        <span>{request.venue.name} · {formatDate(request.startTime)} · {formatTimeRange(request.startTime, request.endTime)}</span>
+                      </span>
+                      <span className={conflicts.confirmedCount || conflicts.pendingCount ? 'workspace-overlap' : undefined}>
+                        {conflicts.confirmedCount ? 'Confirmed overlap' : conflicts.pendingCount ? 'Competing request' : step.stepOrder === 0 ? 'Endorsement' : step.stepName}
+                      </span>
+                      <ArrowRight size={16} aria-hidden="true" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
-
-          <section className="side-note">
-            <ShieldCheck size={20} aria-hidden="true" />
-            <div>
-              <strong>Access is auditable</strong>
-              <p>
-                Role changes and account decisions are recorded against the administrator who
-                made them.
-              </p>
-            </div>
-          </section>
-        </aside>
+        )}
+        {eventList}
       </div>
     </>
+  );
+}
+
+function HomeRowsLoading({ label }: { label: string }) {
+  return (
+    <div className="table-skeleton" role="status">
+      <span className="sr-only">{label}</span>
+      {[1, 2].map((row) => (
+        <div className="table-skeleton-row" key={row} aria-hidden="true">
+          <Skeleton className="skeleton-line" />
+          <Skeleton className="skeleton-line" />
+        </div>
+      ))}
+    </div>
   );
 }

@@ -151,12 +151,11 @@ export function UserReviewDialog({
       </div>
 
       {mode === 'review' && (
-        <div className="dialog-tabs" role="tablist" aria-label="Review action">
+        <div className="dialog-tabs" role="group" aria-label="Review action">
           <button
             type="button"
-            role="tab"
             id={`${panelId}-approve-tab`}
-            aria-selected={tab === 'approve'}
+            aria-pressed={tab === 'approve'}
             aria-controls={`${panelId}-approve-panel`}
             className={`dialog-tab ${tab === 'approve' ? 'is-active' : ''}`}
             onClick={() => setTab('approve')}
@@ -165,9 +164,8 @@ export function UserReviewDialog({
           </button>
           <button
             type="button"
-            role="tab"
             id={`${panelId}-reject-tab`}
-            aria-selected={tab === 'reject'}
+            aria-pressed={tab === 'reject'}
             aria-controls={`${panelId}-reject-panel`}
             className={`dialog-tab ${tab === 'reject' ? 'is-active' : ''}`}
             onClick={() => setTab('reject')}

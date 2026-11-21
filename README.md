@@ -51,7 +51,8 @@ administrator using the `SEED_ADMIN_*` values in `.env`. The defaults in
 shared database.
 
 Registration creates a pending account. An administrator signs in, opens
-**Approvals**, assigns at least one role, and approves or rejects the request.
+**Users** in Administration, assigns at least one role, and approves or rejects
+the request.
 Pending, rejected and suspended accounts cannot sign in.
 
 ## Commands
@@ -89,6 +90,44 @@ scripts/              PostgreSQL backup and restore scripts
 docker-compose.yml    Local PostgreSQL 16 service
 docker-compose.prod.yml  Production API, web, migrate and PostgreSQL services
 ```
+
+## Frontend design system
+
+Campus Venue pairs a quiet green-gray navigation rail with white work surfaces,
+strong text contrast and a deep teal for primary actions and selection. Lexend
+sets page and section headings, while Source Sans 3 handles controls, forms and
+data. Styles use 4–40 px spacing increments, compact rows and visible keyboard
+focus. Each page places its main task in the header. Use blue for review or
+information, green for confirmation, amber for competing requests and red for
+blocking conflicts or destructive actions. Status text stays visible alongside
+its color.
+
+Use `PageHeader`, `Button`, `TextField`, `SelectField`, `Alert`, `EmptyState` and
+`Dialog` from `apps/web/src/components/ui.tsx`. Use the domain status components
+from `booking.tsx` and the tokens at the top of `apps/web/src/styles.css`.
+Desktop keeps the workspace navigation in the side rail. Tablet and phone use
+bottom navigation and keep admin sections reachable from the console. On narrow
+screens, queue and directory rows stack their fields and keep the review action
+in view.
+
+The audit found three recurring issues across public entry, event planning and
+administration. Space was spent on decoration, cards repeated record metadata,
+and approval filters only applied to the current page. The approval inbox and
+shell established the visual baseline on desktop and phone before the other
+routes were updated. The references informed navigation density, operational
+tables and accessible controls. [Linear redesign](https://linear.app/now/how-we-redesigned-the-linear-ui),
+[Stripe Dashboard guide](https://docs.stripe.com/dashboard/basics),
+[shadcn dashboard blocks](https://ui.shadcn.com/blocks/dashboard).
+
+To reproduce the screenshot set, point `E2E_DATABASE_URL` at a disposable local
+database and run `VENUE_CAPTURE=1 pnpm test:e2e e2e/screenshot.spec.ts`. The
+capture creates sample users, bookings and decisions through the real API and
+writes PNGs under Playwright's output directory.
+
+The approval inbox reads the accessible queue in batches for whole-queue
+filtering, sorting and pagination. Its network cost rises with queue size. The
+administration schedule displays one venue at a time using the existing
+per-venue calendar API.
 
 ## Security notes
 

@@ -31,23 +31,22 @@ import {
 
 /* ------------------------------------------------------------------ brand */
 
-export function BrandMark({ size = 36, tone = 'light' }: { size?: number; tone?: 'light' | 'dark' }) {
-  const background = tone === 'light' ? '#f6f2e9' : '#1e3a5f';
-  const ink = tone === 'light' ? '#1e3a5f' : '#f6f2e9';
-  const accent = tone === 'light' ? '#a16207' : '#d8a742';
+export function BrandMark({ size = 32, tone = 'dark' }: { size?: number; tone?: 'light' | 'dark' }) {
+  const bg = tone === 'light' ? 'var(--surface)' : 'var(--accent)';
+  const iconStroke = tone === 'light' ? 'var(--accent)' : 'var(--surface)';
+  const accent = tone === 'light' ? 'var(--accent)' : '#c3e2d7';
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 40 40"
+      viewBox="0 0 36 36"
       fill="none"
-      role="img"
-      aria-label="Campus Venue mark"
+      aria-hidden="true"
     >
-      <rect width="40" height="40" rx="11" fill={background} />
-      <path d="M11 29V18.5L20 12l9 6.5V29" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M16.5 29v-6.5h7V29" stroke={ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M8.5 29h23" stroke={ink} strokeWidth="2" strokeLinecap="round" />
+      <rect width="36" height="36" rx="8" fill={bg} />
+      <path d="M10 25V14L18 9L26 14V25" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M15 25V18H21V25" stroke={iconStroke} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8 25H28" stroke={iconStroke} strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
 }
@@ -61,10 +60,10 @@ export function BrandLockup({
 }) {
   return (
     <span className={`brand-lockup ${tone === 'light' ? 'brand-on-dark' : ''}`}>
-      <BrandMark tone={tone} />
+      <BrandMark size={compact ? 26 : 30} tone={tone} />
       <span className="brand-copy">
         <span className="brand-name">Campus Venue</span>
-        {!compact && <span className="brand-sub">Institutional bookings</span>}
+        {!compact && <span className="brand-sub">Operations</span>}
       </span>
     </span>
   );
@@ -239,7 +238,6 @@ export function PasswordField({
           onClick={() => setVisible((value) => !value)}
           aria-label={visible ? 'Hide password' : 'Show password'}
           aria-pressed={visible}
-          tabIndex={-1}
         >
           {visible ? <EyeSlash size={18} /> : <Eye size={18} />}
         </button>

@@ -64,9 +64,8 @@ export function AdminDepartmentsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Administration"
-        title="Academic departments"
-        description="Departments establish academic boundaries for members, student organizers, venues, and preliminary approvals."
+        title="Departments"
+        description="Manage the departments used for account access, venues and approval routing."
         actions={
           <Button size="md" onClick={() => setDialogTarget({})}>
             <Plus size={16} /> Add department
@@ -79,6 +78,7 @@ export function AdminDepartmentsPage() {
           <div className="search-field">
             <MagnifyingGlass size={17} className="search-icon" aria-hidden="true" />
             <input
+              className="input search-input"
               type="search"
               placeholder="Filter by department code or name…"
               value={search}

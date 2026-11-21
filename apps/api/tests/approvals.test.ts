@@ -338,6 +338,22 @@ describe('Phase 3 — Configurable approval workflows and lifecycle', () => {
       .where(eq(venueRequests.id, request.id));
     expect(finalRequest?.status).toBe('APPROVED_PENDING_ALLOTMENT');
 
+    for (const [session, expectedCount] of [[principalSession, 1], [bursarSession, 0]] as const) {
+      const inbox = await app.inject({
+        method: 'GET',
+        url: '/api/v1/approvals/inbox',
+        headers: { cookie: session.cookie },
+      });
+      expect(inbox.statusCode).toBe(200);
+      expect(inbox.json().items).toHaveLength(expectedCount);
+      if (expectedCount > 0) {
+        expect(inbox.json().items[0].request).toMatchObject({
+          id: request.id,
+          status: 'APPROVED_PENDING_ALLOTMENT',
+        });
+      }
+    }
+
     // Confirm decision timeline in request detail
     const detailRes = await app.inject({
       method: 'GET',

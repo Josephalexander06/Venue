@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNotNull, or } from 'drizzle-orm';
 import type {
   ApprovalDecisionInput,
   RequestStatus,
@@ -157,12 +157,13 @@ export async function listApprovalInbox(
     .innerJoin(venues, eq(venues.id, venueRequests.venueId))
     .innerJoin(events, eq(events.id, venueRequests.eventId))
     .innerJoin(departments, eq(departments.id, events.departmentId))
-    .innerJoin(
+    .leftJoin(
       approvalInstances,
       and(
         eq(approvalInstances.venueRequestId, venueRequests.id),
         eq(approvalInstances.workflowId, venueRequests.workflowId),
         eq(approvalInstances.isActive, true),
+        eq(approvalInstances.currentStepOrder, venueRequests.currentStepOrder),
       ),
     )
     .innerJoin(
@@ -170,12 +171,13 @@ export async function listApprovalInbox(
       and(
         eq(workflowSteps.workflowId, venueRequests.workflowId),
         eq(workflowSteps.stepOrder, venueRequests.currentStepOrder),
-        eq(workflowSteps.stepOrder, approvalInstances.currentStepOrder),
       ),
     )
     .where(
       and(
         inArray(venueRequests.status, [...INBOX_STATUSES]),
+        // Preliminary approval closes the round. Final allotment remains actionable.
+        or(isNotNull(approvalInstances.id), eq(venueRequests.status, 'APPROVED_PENDING_ALLOTMENT')),
         gt(venueRequests.currentStepOrder, 0),
       ),
     );
@@ -192,11 +194,9 @@ export async function listApprovalInbox(
       row.submittedById !== viewer.userId &&
       row.facultyCoordinatorId !== viewer.userId &&
       !orgEventIds.has(row.eventId) &&
-      eligibleForStep(
-        viewerRoles,
-        { requiredRole: row.requiredRole, scopeType: row.scopeType },
-        row.departmentId,
-        row.venueDepartmentId,
+      (
+        (viewer.isAdmin && row.status === 'APPROVED_PENDING_ALLOTMENT') ||
+        eligibleForStep(viewerRoles, row, row.departmentId, row.venueDepartmentId)
       ),
   );
 

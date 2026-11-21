@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   ArrowRight,
-  Buildings,
   EnvelopeSimple,
   Phone,
   User,
@@ -78,11 +77,9 @@ export function RegisterPage() {
   return (
     <AuthLayout>
       <div className="auth-card auth-card-register">
-        <p className="eyebrow">Access request</p>
-        <h1>Request your account</h1>
+        <h1>Request an account</h1>
         <p className="auth-subtitle">
-          Tell us who you are and where you work. An administrator will verify your details
-          before activating access.
+          A college administrator will verify your details before activating your account.
         </p>
 
         {generalError && (
@@ -155,7 +152,6 @@ export function RegisterPage() {
               clearServerError();
             }}
             error={emailError}
-            hint="Use the address you use for college communication."
             required
           />
 
@@ -244,11 +240,6 @@ export function RegisterPage() {
         <p className="auth-switch">
           Already approved? <Link to="/login">Sign in</Link>
         </p>
-
-        <div className="auth-note">
-          <Buildings size={16} aria-hidden="true" />
-          <span>An administrator verifies new accounts before access is activated.</span>
-        </div>
       </div>
     </AuthLayout>
   );

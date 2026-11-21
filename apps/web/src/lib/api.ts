@@ -551,11 +551,11 @@ export const api = {
     return request<RequestDetailView>(`/venue-requests/${id}`);
   },
 
-  approvalInbox(params: { limit?: number; offset?: number } = {}) {
+  approvalInbox(params: { limit?: number; offset?: number } = {}, signal?: AbortSignal) {
     const query = new URLSearchParams();
     query.set('limit', String(params.limit ?? 25));
     query.set('offset', String(params.offset ?? 0));
-    return request<ApprovalInboxList>(`/approvals/inbox?${query.toString()}`);
+    return request<ApprovalInboxList>(`/approvals/inbox?${query.toString()}`, { signal });
   },
 
   approvalDetail(id: string) {

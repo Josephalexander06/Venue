@@ -29,9 +29,18 @@ test('mobile venue calendar and booking form stay usable', async ({ page }) => {
 
   await expectNoHorizontalOverflow();
 
-  for (const path of ['/my-events', '/approvals']) {
-    await page.goto(path);
+  for (const [path, heading] of [
+    ['/my-events', 'My events'],
+    ['/approvals', 'Approval inbox'],
+    ['/admin', 'Administration overview'],
+    ['/admin/users', 'User accounts'],
+    ['/admin/venues', 'Manage venues'],
+    ['/admin/departments', 'Departments'],
+    ['/admin/workflows', 'Approval workflows'],
+    ['/account', 'My account'],
+  ]) {
+    await page.goto(path!);
+    await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible();
     await expectNoHorizontalOverflow();
   }
-  await expect(page.getByRole('heading', { name: 'Approval inbox' })).toBeVisible();
 });

@@ -20,7 +20,7 @@ import {
   Skeleton,
   TextField,
 } from '../components/ui';
-import { VenueCard } from '../components/booking';
+import { VenueListItem } from '../components/booking';
 
 const PAGE_SIZE = 12;
 const CAPACITY_OPTIONS = [
@@ -51,6 +51,7 @@ export function VenuesPage() {
     queryKey: ['venues', { search: deferredSearch, departmentId, minCapacity, offset }],
     queryFn: () =>
       api.venues({
+        active: true,
         search: deferredSearch || undefined,
         departmentId: departmentId || undefined,
         minCapacity: minCapacity ? Number(minCapacity) : undefined,
@@ -71,9 +72,10 @@ export function VenuesPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Venue discovery"
         title="Find the right space"
-        description="Browse campus venues, check their live availability and request a slot without leaving the calendar."
+        description={eventId
+          ? 'Choose a venue and an available slot for your event.'
+          : 'Compare campus spaces by location, capacity and facilities, then check their calendars.'}
         actions={
           <Link to="/my-events" className="btn btn-secondary btn-md">
             <CalendarBlank size={17} /> My events
@@ -170,31 +172,31 @@ export function VenuesPage() {
         </div>
       )}
 
-      <div className="venue-results-head">
+      <div className="venue-results-head" role="status">
         <p>
-          {venues.isPending ? 'Finding venues…' : `${total} venue${total === 1 ? '' : 's'}`}
-          {hasFilters ? ' matching your filters' : ' available for booking'}
+          {!venues.isError && (venues.isPending
+            ? 'Finding venues…'
+            : `${total} ${total === 1 ? 'venue' : 'venues'}${hasFilters ? ' matching your filters' : ' accepting requests'}`)}
         </p>
         {venues.isFetching && !venues.isPending && <span className="refreshing-note">Updating…</span>}
       </div>
 
       {venues.isPending ? (
-        <div className="venue-grid" aria-hidden="true">
-          {[0, 1, 2, 3].map((item) => (
-            <div className="venue-card venue-card-skeleton" key={item}>
+        <div className="card table-skeleton" role="status">
+          <span className="sr-only">Loading venues</span>
+          {[0, 1, 2].map((item) => (
+            <div className="table-skeleton-row" key={item} aria-hidden="true">
               <Skeleton className="skeleton-line skeleton-line-wide" />
               <Skeleton className="skeleton-line" />
-              <Skeleton className="skeleton-block" />
-              <Skeleton className="skeleton-button" />
             </div>
           ))}
         </div>
-      ) : visible.length === 0 ? (
+      ) : venues.isError && !venues.data ? null : visible.length === 0 ? (
         <div className="card">
           <EmptyState
             icon={<MagnifyingGlass size={28} weight="duotone" />}
-            title="No venues match those filters"
-            description="Try a broader capacity, another department or a different search term."
+            title={hasFilters ? 'No venues match these filters' : 'No venues accepting requests'}
+            description={hasFilters ? "Try a lower capacity, another department or a different search term." : "Check the catalog again later or contact your college administrator."}
             action={
               hasFilters ? (
                 <Button
@@ -215,11 +217,16 @@ export function VenuesPage() {
         </div>
       ) : (
         <>
-          <div className="venue-grid">
-            {visible.map((venue) => (
-              <VenueCard key={venue.id} venue={venue} eventId={eventId} />
-            ))}
-          </div>
+          <section className="venue-results" aria-label="Venues accepting requests">
+            <div className="venue-result venue-result-head" aria-hidden="true">
+              <span>Venue</span><span>Location</span><span>Capacity</span><span>Facilities</span><span />
+            </div>
+            <ul>
+              {visible.map((venue) => (
+                <VenueListItem key={venue.id} venue={venue} eventId={eventId} />
+              ))}
+            </ul>
+          </section>
           {total > PAGE_SIZE && (
             <div className="venue-pagination">
               <Button

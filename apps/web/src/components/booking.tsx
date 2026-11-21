@@ -1,11 +1,5 @@
 import { Link } from 'react-router-dom';
-import {
-  ArrowRight,
-  Buildings,
-  Clock,
-  MapPin,
-  UsersThree,
-} from '@phosphor-icons/react';
+import { ArrowRight } from '@phosphor-icons/react';
 import {
   EVENT_STATUS_LABELS,
   REQUEST_STATUS_LABELS,
@@ -49,69 +43,27 @@ export function EventStatusBadge({ status }: { status: EventStatus }) {
   );
 }
 
-export function VenueCard({ venue, eventId }: { venue: Venue; eventId?: string | null }) {
+export function VenueListItem({ venue, eventId }: { venue: Venue; eventId?: string | null }) {
   const href = `/venues/${venue.id}${eventId ? `?eventId=${encodeURIComponent(eventId)}` : ''}`;
+  const facilities = venue.facilities.slice(0, 3);
   return (
-    <article className="venue-card">
-      <div className="venue-card-top">
-        <div>
-          <p className="venue-code">{venue.code}</p>
-          <h2>
-            <Link to={href}>{venue.name}</Link>
-          </h2>
-        </div>
-        <span className={`venue-availability ${venue.isActive ? 'is-open' : 'is-closed'}`}>
-          {venue.isActive ? 'Available' : 'Archived'}
+    <li>
+      <Link className="venue-result" to={href}>
+        <span className="venue-result-name">
+          <strong>{venue.name}</strong>
+          <span>{venue.code} · {venue.department?.name ?? 'College common'}</span>
         </span>
-      </div>
-
-      <dl className="venue-facts">
-        <div>
-          <dt>
-            <MapPin size={15} aria-hidden="true" /> Location
-          </dt>
-          <dd>
-            {venue.building}
-            {venue.floor !== 0 ? ` · Floor ${venue.floor}` : ' · Ground floor'}
-          </dd>
-        </div>
-        <div>
-          <dt>
-            <UsersThree size={15} aria-hidden="true" /> Capacity
-          </dt>
-          <dd>{venue.capacity} people</dd>
-        </div>
-        <div>
-          <dt>
-            <Buildings size={15} aria-hidden="true" /> Owner
-          </dt>
-          <dd>{venue.department?.name ?? 'College common'}</dd>
-        </div>
-        <div>
-          <dt>
-            <Clock size={15} aria-hidden="true" /> Buffers
-          </dt>
-          <dd>
-            {venue.setupBufferMins} min setup · {venue.teardownBufferMins} min cleanup
-          </dd>
-        </div>
-      </dl>
-
-      <div className="venue-facilities" aria-label="Facilities">
-        {venue.facilities.length === 0 ? (
-          <span className="facility-chip is-muted">No listed facilities</span>
-        ) : (
-          venue.facilities.map((facility) => (
-            <span className="facility-chip" key={facility}>
-              {facility}
-            </span>
-          ))
-        )}
-      </div>
-
-      <Link to={href} className="btn btn-secondary btn-sm venue-card-action">
-        View calendar and book <ArrowRight size={15} />
+        <span className="venue-result-location">
+          <strong>{venue.building}</strong>
+          <span>{venue.floor === 0 ? 'Ground floor' : `Floor ${venue.floor}`}</span>
+        </span>
+        <span className="venue-result-capacity">{venue.capacity} seats</span>
+        <span className="venue-result-facilities">
+          {facilities.length > 0 ? facilities.join(' · ') : '—'}
+          {venue.facilities.length > facilities.length && ` · +${venue.facilities.length - facilities.length}`}
+        </span>
+        <span className="venue-result-action">View availability <ArrowRight size={16} aria-hidden="true" /></span>
       </Link>
-    </article>
+    </li>
   );
 }

@@ -1,85 +1,81 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowSquareOut, Clock, UsersThree, WarningCircle } from '@phosphor-icons/react';
-import type { Conflict } from '../../lib/api';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowSquareOut, WarningCircle } from '@phosphor-icons/react';
+import { api, type RequestDetailView } from '../../lib/api';
 import { formatTimeRange } from '../../lib/datetime';
+import { formatDate } from '../../lib/format';
 import { RequestStatusBadge } from '../booking';
-
-interface CompetitorComparisonProps {
-  currentRequestId: string;
-  conflicts: Conflict[];
-  venueCapacity: number;
-}
+import { SelectField } from '../ui';
 
 export function CompetitorComparison({
-  currentRequestId,
-  conflicts,
-  venueCapacity,
-}: CompetitorComparisonProps) {
-  const competitors = conflicts.filter((c) => c.requestId !== currentRequestId);
-  if (competitors.length === 0) return null;
+  detail,
+  canReadOrganizer,
+}: {
+  detail: RequestDetailView;
+  canReadOrganizer: boolean;
+}) {
+  const [selectedId, setSelectedId] = useState('');
+  const { request, event, conflicts } = detail;
+  const organizers = useQuery({
+    queryKey: ['approval', request.id, 'competitors'],
+    queryFn: () => api.competingRequests(request.id),
+    enabled: canReadOrganizer,
+  });
+
+  const competitor = conflicts.pending.find((item) => item.requestId === selectedId) ?? conflicts.pending[0];
+  if (!competitor) return null;
+  const organizer = organizers.data?.competingRequests.find((item) => item.request.id === competitor.requestId)?.organizer;
 
   return (
-    <div className="competitor-comparison-panel card">
+    <section className="card comparison-panel" aria-labelledby="competition-heading">
       <div className="card-head">
         <div>
-          <div className="competitor-badge-title">
-            <WarningCircle size={18} weight="fill" className="text-amber" />
-            <h3>Competing Requests ({competitors.length})</h3>
-          </div>
-          <p>
-            Other applications overlapping this time window. As the final decision-maker, selecting one request
-            atomically marks the others as superseded.
-          </p>
+          <h2 id="competition-heading">Competing requests</h2>
+          <p>Compare event times and reservation buffers before confirming an allotment.</p>
         </div>
+        <span className="queue-overlap"><WarningCircle size={16} aria-hidden="true" /> {conflicts.pending.length} overlapping</span>
       </div>
 
-      <div className="competitor-grid">
-        {competitors.map((item) => {
-          const attendance = item.expectedAttendance ?? 0;
-          const capacityRatio = venueCapacity > 0 ? Math.round((attendance / venueCapacity) * 100) : 0;
+      {conflicts.pending.length > 1 && (
+        <SelectField label="Compare with" value={competitor.requestId} onChange={(change) => setSelectedId(change.target.value)}>
+          {conflicts.pending.map((item) => (
+            <option value={item.requestId} key={item.requestId}>{item.title} · {formatTimeRange(item.startTime, item.endTime)}</option>
+          ))}
+        </SelectField>
+      )}
 
-          return (
-            <div key={item.requestId} className="competitor-card">
-              <div className="competitor-header">
-                <div>
-                  <h4 className="competitor-title">{item.title}</h4>
-                  <p className="competitor-dept">
-                    {item.departmentName ? `${item.departmentName} (${item.departmentCode})` : 'Department Event'}
-                  </p>
-                </div>
-                <RequestStatusBadge status={item.status} />
-              </div>
+      <div className="comparison-grid">
+        <section>
+          <div className="comparison-kicker">Current request</div>
+          <h3>{event.title}</h3>
+          <RequestStatusBadge status={request.status} />
+          <dl>
+            <div><dt>Department</dt><dd>{event.department.name}</dd></div>
+            <div><dt>Event time</dt><dd>{formatDate(request.startTime)} · {formatTimeRange(request.startTime, request.endTime)}</dd></div>
+            <div><dt>With buffers</dt><dd>{formatTimeRange(request.effectiveStart, request.effectiveEnd)}</dd></div>
+            <div><dt>Attendance</dt><dd>{event.expectedAttendance} of {request.venue.capacity} seats</dd></div>
+          </dl>
+        </section>
 
-              <div className="competitor-details">
-                <div className="competitor-detail-row">
-                  <Clock size={16} aria-hidden="true" />
-                  <span>{formatTimeRange(item.startTime, item.endTime)}</span>
-                </div>
-                {attendance > 0 && (
-                  <div className="competitor-detail-row">
-                    <UsersThree size={16} aria-hidden="true" />
-                    <span>
-                      {attendance} attendees ({capacityRatio}% venue capacity)
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div className="competitor-actions">
-                <Link
-                  to={`/approvals/${item.requestId}`}
-                  className="btn btn-quiet btn-sm"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Inspect application
-                  <ArrowSquareOut size={14} aria-hidden="true" />
-                </Link>
-              </div>
-            </div>
-          );
-        })}
+        <section>
+          <div className="comparison-kicker">Overlapping request</div>
+          <h3>{competitor.title}</h3>
+          <RequestStatusBadge status={competitor.status} />
+          <dl>
+            <div><dt>Department</dt><dd>{competitor.departmentName ?? '—'}</dd></div>
+            <div><dt>Event time</dt><dd>{formatDate(competitor.startTime)} · {formatTimeRange(competitor.startTime, competitor.endTime)}</dd></div>
+            <div><dt>With buffers</dt><dd>{formatTimeRange(competitor.rangeStart, competitor.rangeEnd)}</dd></div>
+            <div><dt>Attendance</dt><dd>{competitor.expectedAttendance === undefined ? '—' : `${competitor.expectedAttendance} of ${request.venue.capacity} seats`}</dd></div>
+            {organizer && <div><dt>Organizer</dt><dd>{organizer.firstName} {organizer.lastName}</dd></div>}
+          </dl>
+          {canReadOrganizer && (
+            <Link className="text-link" to={`/approvals/${competitor.requestId}`}>
+              Open request <ArrowSquareOut size={14} aria-hidden="true" />
+            </Link>
+          )}
+        </section>
       </div>
-    </div>
+    </section>
   );
 }

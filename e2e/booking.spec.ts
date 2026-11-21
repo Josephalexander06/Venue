@@ -88,6 +88,21 @@ test('registration, approval, booking, endorsement and final allotment journey',
   await login(page, studentEmail, studentPassword);
   await expect(page.getByRole('heading', { level: 1 })).toContainText(firstName);
 
+  await page.getByRole('link', { name: 'Create event' }).click();
+  const draft = page.getByRole('dialog', { name: 'Create an event' });
+  const draftTitle = `E2E Planning Session ${stamp}`;
+  await draft.getByLabel('Event title').fill(draftTitle);
+  await draft.getByLabel('Expected attendance').fill('30');
+  await draft.getByRole('button', { name: 'Create event' }).click();
+  await expect(draft).toBeHidden();
+  const draftCard = page.getByRole('article').filter({ has: page.getByRole('heading', { name: draftTitle }) });
+  await expect(draftCard.getByRole('link', { name: 'Choose a venue' })).toBeVisible();
+  await draftCard.getByRole('button', { name: 'Event team' }).click();
+  const teamDialog = page.getByRole('dialog', { name: 'Event team' });
+  await expect(teamDialog.getByRole('heading', { name: 'Organizers' })).toBeVisible();
+  await teamDialog.getByRole('button', { name: 'Done' }).click();
+  await page.goto('/home');
+
   await page.getByRole('link', { name: 'Browse campus venues' }).click();
   await expect(page.getByRole('heading', { name: 'Find the right space' })).toBeVisible();
   await page.getByRole('link', { name: 'Main Auditorium' }).click();
@@ -121,7 +136,7 @@ test('registration, approval, booking, endorsement and final allotment journey',
   await context.clearCookies();
   await login(page, facultyEmail, facultyPassword);
   await page.goto('/approvals');
-  const facultyCard = page.locator('.inbox-card', { hasText: title });
+  const facultyCard = page.getByRole('row').filter({ hasText: title });
   await expect(facultyCard).toBeVisible();
   await facultyCard.getByRole('link', { name: 'Review & decide' }).click();
   await page.getByRole('button', { name: 'Record decision' }).first().click();
@@ -132,7 +147,12 @@ test('registration, approval, booking, endorsement and final allotment journey',
   await context.clearCookies();
   await loginAsAdmin(page);
   await page.goto('/approvals');
-  const adminCard = page.locator('.inbox-card', { hasText: title });
+  const queueSearch = page.getByRole('searchbox', { name: 'Search event, venue or department' });
+  await queueSearch.fill('unique-title-with-no-matches');
+  await expect(page.getByRole('heading', { name: 'No matching requests' })).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await queueSearch.fill(title);
+  const adminCard = page.getByRole('row').filter({ hasText: title });
   await expect(adminCard).toBeVisible();
   await adminCard.getByRole('link', { name: 'Review & decide' }).click();
 
@@ -144,8 +164,12 @@ test('registration, approval, booking, endorsement and final allotment journey',
   await page.getByRole('button', { name: 'Approve stage' }).click();
   await expect(page.getByText('Ready for final venue allotment')).toBeVisible();
 
+  await page.getByRole('link', { name: 'Back to inbox' }).click();
+  await page.getByRole('button', { name: /Ready to allot/ }).click();
+  await page.getByRole('row').filter({ hasText: title }).getByRole('link', { name: /Review & allot/ }).click();
+
   await page.getByRole('button', { name: 'Confirm & Allot Venue' }).first().click();
-  await page.getByLabel('Override reason (required)').fill('Approved by administrator for E2E verification.');
+  await page.getByLabel('Administrative reason').fill('Approved by administrator for E2E verification.');
   await page
     .getByRole('dialog')
     .getByRole('button', { name: 'Confirm & Allot Venue' })

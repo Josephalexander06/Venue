@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { CheckCircle, ShieldCheck, WarningCircle } from '@phosphor-icons/react';
 import type { RequestDetailView } from '../../lib/api';
 import { formatDate } from '../../lib/format';
 import { formatTimeRange } from '../../lib/datetime';
-import { Button, Dialog, TextareaField } from '../ui';
+import { Alert, Button, Dialog, TextareaField } from '../ui';
 
 interface AllotmentConfirmDialogProps {
   open: boolean;
@@ -26,9 +25,11 @@ export function AllotmentConfirmDialog({
 
   const { request, event, conflicts } = detail;
   const competingCount = conflicts.pending.length;
+  const blocked = conflicts.confirmed.length > 0;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting || blocked) return;
     setError(null);
 
     if (isOverride && remarks.trim().length < 5) {
@@ -51,64 +52,34 @@ export function AllotmentConfirmDialog({
     <Dialog
       open={open}
       onClose={() => onOpenChange(false)}
-      title="Confirm Final Venue Allotment"
-      description="Binding reservation that allocates the venue and resolves scheduling conflicts."
+      title="Confirm venue allotment"
+      description="This reserves the venue for the event, including setup and cleanup time."
     >
       <form onSubmit={handleSubmit} className="allotment-dialog-form">
-        <div className="allotment-summary-card">
-          <div className="allotment-summary-header">
-            <div>
-              <span className="allotment-venue-badge">{request.venue.name}</span>
-              <h3 className="allotment-event-title">{event.title}</h3>
-              <p className="allotment-dept-meta">
-                {event.department.name} ({event.department.code}) · Expected turnout: {event.expectedAttendance}
-              </p>
-            </div>
-            <div className="allotment-seal-icon">
-              <ShieldCheck size={28} weight="duotone" />
-            </div>
-          </div>
-
-          <div className="allotment-time-pill">
-            <span>📅 {formatDate(request.startTime)}</span>
-            <span>⏰ {formatTimeRange(request.startTime, request.endTime)}</span>
-            <span className="buffer-note">
-              (+{request.setupBufferMins}m setup / +{request.teardownBufferMins}m teardown buffer)
-            </span>
-          </div>
+        <div className="allotment-review">
+          <h3>{event.title}</h3>
+          <dl>
+            <div><dt>Venue</dt><dd>{request.venue.name}</dd></div>
+            <div><dt>Event time</dt><dd>{formatDate(request.startTime)} · {formatTimeRange(request.startTime, request.endTime)}</dd></div>
+            <div><dt>Reserved window</dt><dd>{formatTimeRange(request.effectiveStart, request.effectiveEnd)} including buffers</dd></div>
+          </dl>
         </div>
 
-        {competingCount > 0 ? (
-          <div className="allotment-conflict-notice">
-            <WarningCircle size={22} weight="fill" className="text-amber" />
-            <div>
-              <strong>{competingCount} Competing Request{competingCount > 1 ? 's' : ''} Will Be Superseded</strong>
-              <p>
-                Confirming this allotment will mark all other competing unconfirmed requests as{' '}
-                <code>SUPERSEDED_CONFLICT</code>. Their approval records will be preserved, and organizers will receive
-                rescheduling guidance.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="allotment-clear-notice">
-            <CheckCircle size={20} weight="fill" className="text-emerald" />
-            <span>No conflicting holds exist for this time slot. Safe to allot immediately.</span>
-          </div>
-        )}
-
-        {isOverride && (
-          <div className="allotment-override-notice">
-            <ShieldCheck size={20} weight="fill" className="text-indigo" />
-            <div>
-              <strong>Administrative Override Decision</strong>
-              <p>You are allotting this venue under administrative authority. A reason must be recorded.</p>
-            </div>
-          </div>
+        {blocked ? (
+          <Alert tone="danger" title="Confirmed reservation overlaps this slot">
+            Return to the request to review the existing reservation.
+          </Alert>
+        ) : competingCount > 0 && (
+          <Alert tone="warning" title={`${competingCount} competing ${competingCount === 1 ? 'request' : 'requests'} will be superseded`}>
+            The other organizers will receive rescheduling guidance. Their decision history will remain available.
+          </Alert>
         )}
 
         <TextareaField
-          label={isOverride ? 'Override reason (required)' : 'Allocation remarks & notes (optional)'}
+          label={isOverride ? 'Administrative reason' : 'Remarks'}
+          optional={!isOverride}
+          maxLength={1000}
+          required={isOverride}
           hint="Visible in the audit record and to institutional administrators."
           value={remarks}
           onChange={(e) => setRemarks(e.target.value)}
@@ -125,7 +96,7 @@ export function AllotmentConfirmDialog({
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>
             Cancel
           </Button>
-          <Button type="submit" variant="primary" disabled={submitting} loading={submitting}>
+          <Button type="submit" variant="primary" disabled={submitting || blocked} loading={submitting}>
             {submitting ? 'Committing allotment…' : 'Confirm & Allot Venue'}
           </Button>
         </div>

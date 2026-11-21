@@ -30,7 +30,7 @@ type ActiveFilter = 'all' | 'active' | 'archived';
 
 const FILTERS: { value: ActiveFilter; label: string }[] = [
   { value: 'all', label: 'All venues' },
-  { value: 'active', label: 'Available' },
+  { value: 'active', label: 'Active' },
   { value: 'archived', label: 'Archived' },
 ];
 
@@ -96,30 +96,23 @@ export function AdminVenuesPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Administration"
-        title="Venue catalogue"
-        description="Keep capacities, facilities and reservation buffers accurate for every booking."
+        title="Manage venues"
+        description="Maintain venue capacity, facilities, reservation buffers and workflow assignments."
         actions={
-          <>
-            <Link to="/admin" className="btn btn-ghost btn-md">
-              <ArrowLeft size={16} /> Admin overview
-            </Link>
-            <Button size="md" onClick={() => setDialogTarget({})}>
-              <Plus size={17} /> Add venue
-            </Button>
-          </>
+          <Button onClick={() => setDialogTarget({})}>
+            <Plus size={17} aria-hidden="true" /> Add venue
+          </Button>
         }
       />
 
       <div className="directory-card">
         <div className="directory-toolbar">
-          <div className="filter-tabs" role="tablist" aria-label="Venue availability">
+          <div className="filter-tabs" role="group" aria-label="Venue availability">
             {FILTERS.map((option) => (
               <button
                 key={option.value}
                 type="button"
-                role="tab"
-                aria-selected={activeFilter === option.value}
+                aria-pressed={activeFilter === option.value}
                 className={`filter-tab ${activeFilter === option.value ? 'is-active' : ''}`}
                 onClick={() => {
                   setActiveFilter(option.value);

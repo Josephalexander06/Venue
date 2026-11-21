@@ -24,6 +24,7 @@ interface AuthContextValue {
   isLoading: boolean;
   isAdmin: boolean;
   isApprover: boolean;
+  isFacultyOnlyApprover: boolean;
   hasRole: (role: RoleName) => boolean;
   setSession: (session: AuthSessionResponse | null) => void;
   logout: () => Promise<void>;
@@ -68,6 +69,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading: session.isPending,
         isAdmin: userRoles.has('ADMINISTRATOR'),
         isApprover: APPROVER_ROLES.some((role) => userRoles.has(role)),
+        isFacultyOnlyApprover: userRoles.has('FACULTY') &&
+          APPROVER_ROLES.every((role) => role === 'FACULTY' || !userRoles.has(role)),
         hasRole: (role: RoleName) => userRoles.has(role),
         setSession,
         logout,

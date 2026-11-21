@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CalendarBlank,
@@ -12,11 +12,10 @@ import {
   Plus,
   Prohibit,
   UsersThree,
-  WarningCircle,
 } from '@phosphor-icons/react';
 import type { EventSummary, EventView, RequestView } from '../lib/api';
 import { api, ApiError, fieldError } from '../lib/api';
-import { usePageTitle } from '../auth';
+import { useAuth, usePageTitle } from '../auth';
 import { formatDate } from '../lib/format';
 import { formatTimeRange } from '../lib/datetime';
 import {
@@ -84,7 +83,7 @@ function requestGuidance(request: RequestView) {
 }
 
 interface EditTarget {
-  event: EventView;
+  event?: EventView;
   title: string;
   description: string;
   attendance: string;
@@ -98,10 +97,14 @@ interface CancelTarget {
 
 export function MyEventsPage() {
   usePageTitle('My events');
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
+  const { user, isAdmin } = useAuth();
   const highlight = params.get('highlight');
+  const { hash } = useLocation();
   const [filter, setFilter] = useState<Filter>('all');
-  const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
+  const [editTarget, setEditTarget] = useState<EditTarget | null>(() =>
+    params.get('create') === '1' ? { title: '', description: '', attendance: '' } : null,
+  );
   const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
   const [statusRequestId, setStatusRequestId] = useState<string | null>(null);
   const [teamTarget, setTeamTarget] = useState<EventSummary | null>(null);
@@ -115,20 +118,16 @@ export function MyEventsPage() {
 
   const events = useMemo(() => eventsQuery.data?.events ?? [], [eventsQuery.data]);
 
-  const visibleEvents = useMemo(
-    () =>
-      events
-        .map((event) => ({
-          ...event,
-          requests: event.requests.filter((request) => matchesFilter(request, filter)),
-        }))
-        .filter((event) => {
-          if (filter === 'all') return true;
-          if (filter === 'open' && event.requests.length === 0) return event.status === 'DRAFT';
-          return event.requests.length > 0;
-        }),
-    [events, filter],
+  const visibleEvents = events.filter((event) =>
+    filter === 'all' || (filter === 'open' && event.status === 'DRAFT') ||
+    event.requests.some((request) => matchesFilter(request, filter)),
   );
+
+  useEffect(() => {
+    if (events.length && hash.startsWith('#event-')) {
+      document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [events, hash]);
 
   function invalidate() {
     return Promise.all([
@@ -139,32 +138,44 @@ export function MyEventsPage() {
     ]);
   }
 
-  const updateEvent = useMutation({
-    mutationFn: (target: EditTarget) =>
-      api.updateEvent(target.event.id, {
+  function closeEditor() {
+    setEditTarget(null);
+    if (params.has('create')) {
+      const next = new URLSearchParams(params);
+      next.delete('create');
+      setParams(next, { replace: true });
+    }
+  }
+
+  const saveEvent = useMutation({
+    mutationFn: (target: EditTarget) => {
+      const input = {
         title: target.title.trim(),
         description: target.description.trim(),
         expectedAttendance: Number(target.attendance),
-      }),
-    onSuccess: async () => {
+      };
+      return target.event ? api.updateEvent(target.event.id, input) : api.createEvent(input);
+    },
+    onSuccess: async (_result, target) => {
       await invalidate();
-      setEditTarget(null);
-      pushToast({ tone: 'success', title: 'Event details updated' });
+      closeEditor();
+      if (!target.event) setFilter('all');
+      pushToast({ tone: 'success', title: target.event ? 'Event details updated' : 'Event created' });
     },
   });
 
   const cancel = useMutation({
     mutationFn: async (target: CancelTarget): Promise<unknown> =>
       target.type === 'event' ? api.cancelEvent(target.id) : api.cancelRequest(target.id),
-    onSuccess: async () => {
+    onSuccess: async (_result, target) => {
       await invalidate();
       setCancelTarget(null);
-      pushToast({ tone: 'success', title: 'Booking cancelled' });
+      pushToast({ tone: 'success', title: target.type === 'event' ? 'Event cancelled' : 'Booking cancelled' });
     },
   });
 
   function openEdit(event: EventView) {
-    updateEvent.reset();
+    saveEvent.reset();
     setEditTarget({
       event,
       title: event.title,
@@ -176,13 +187,18 @@ export function MyEventsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Your bookings"
         title="My events"
-        description="Track every request, update an event and keep an eye on what is confirmed."
+        description="Manage your events, event teams and venue requests."
         actions={
-          <Link to="/venues" className="btn btn-primary btn-md">
-            <Plus size={17} /> Book a venue
-          </Link>
+          <>
+            <Link to="/venues" className="btn btn-secondary btn-md">Browse venues</Link>
+            <Button onClick={() => {
+              saveEvent.reset();
+              setEditTarget({ title: '', description: '', attendance: '' });
+            }}>
+              <Plus size={17} aria-hidden="true" /> Create event
+            </Button>
+          </>
         }
       />
 
@@ -199,13 +215,12 @@ export function MyEventsPage() {
       )}
 
       <div className="booking-filter-bar">
-        <div className="filter-tabs" role="tablist" aria-label="Booking status">
+        <div className="filter-tabs" role="group" aria-label="Booking status">
           {FILTERS.map((option) => (
             <button
               key={option.value}
               type="button"
-              role="tab"
-              aria-selected={filter === option.value}
+              aria-pressed={filter === option.value}
               className={`filter-tab ${filter === option.value ? 'is-active' : ''}`}
               onClick={() => setFilter(option.value)}
             >
@@ -213,9 +228,6 @@ export function MyEventsPage() {
             </button>
           ))}
         </div>
-        <span className="booking-filter-note">
-          <WarningCircle size={15} /> Pending approval never confirms a venue.
-        </span>
       </div>
 
       {eventsQuery.isPending ? (
@@ -228,7 +240,7 @@ export function MyEventsPage() {
             </div>
           ))}
         </div>
-      ) : visibleEvents.length === 0 ? (
+      ) : eventsQuery.isError ? null : visibleEvents.length === 0 ? (
         <div className="card">
           <EmptyState
             icon={<CalendarCheck size={28} weight="duotone" />}
@@ -252,6 +264,10 @@ export function MyEventsPage() {
               key={event.id}
               event={event}
               highlight={highlight}
+              filter={filter}
+              canManage={isAdmin || event.creatorId === user?.id || event.facultyCoordinatorId === user?.id}
+              userId={user?.id}
+              isAdmin={isAdmin}
               onEdit={() => openEdit(event)}
               onManageTeam={() => setTeamTarget(event)}
               onTrackStatus={(req) => setStatusRequestId(req.id)}
@@ -272,27 +288,33 @@ export function MyEventsPage() {
 
       <Dialog
         open={Boolean(editTarget)}
-        onClose={() => setEditTarget(null)}
-        title="Edit event details"
-        description="Title, description and attendance update immediately. Date or venue changes use the booking flow."
+        onClose={closeEditor}
+        title={editTarget?.event ? 'Edit event details' : 'Create an event'}
+        description={editTarget?.event
+          ? 'To change a date or venue, update the booking separately.'
+          : 'Save an event now and request a venue when you are ready.'}
         footer={
           <>
-            <Button variant="ghost" size="md" onClick={() => setEditTarget(null)}>
+            <Button variant="ghost" size="md" onClick={closeEditor}>
               Cancel
             </Button>
             <Button
               size="md"
-              loading={updateEvent.isPending}
-              disabled={!editTarget || editTarget.title.trim().length < 3}
-              onClick={() => editTarget && updateEvent.mutate(editTarget)}
+              type="submit"
+              form="event-editor"
+              loading={saveEvent.isPending}
+              disabled={saveEvent.isPending}
             >
-              Save event
+              {editTarget?.event ? 'Save changes' : 'Create event'}
             </Button>
           </>
         }
       >
         {editTarget && (
-          <div className="dialog-form">
+          <form id="event-editor" className="dialog-form" onSubmit={(event) => {
+            event.preventDefault();
+            saveEvent.mutate(editTarget);
+          }}>
             <TextField
               label="Event title"
               name="event-title"
@@ -300,7 +322,9 @@ export function MyEventsPage() {
               onChange={(change) =>
                 setEditTarget({ ...editTarget, title: change.target.value })
               }
+              minLength={3}
               maxLength={200}
+              error={fieldError(saveEvent.error, 'title')}
               required
             />
             <TextareaField
@@ -319,21 +343,20 @@ export function MyEventsPage() {
               name="event-attendance"
               type="number"
               min={1}
+              max={100000}
               value={editTarget.attendance}
+              error={fieldError(saveEvent.error, 'expectedAttendance')}
               onChange={(change) =>
                 setEditTarget({ ...editTarget, attendance: change.target.value })
               }
               required
             />
-            {updateEvent.isError && (
-              <Alert tone="danger" title="Could not update event">
-                {updateEvent.error instanceof ApiError
-                  ? (fieldError(updateEvent.error, 'expectedAttendance') ??
-                    updateEvent.error.message)
-                  : 'Check the details and try again.'}
+            {saveEvent.isError && (
+              <Alert tone="danger" title="Could not save event">
+                {saveEvent.error instanceof ApiError ? saveEvent.error.message : 'Check the details and try again.'}
               </Alert>
             )}
-          </div>
+          </form>
         )}
       </Dialog>
 
@@ -392,6 +415,10 @@ export function MyEventsPage() {
 function EventCard({
   event,
   highlight,
+  filter,
+  canManage,
+  userId,
+  isAdmin,
   onEdit,
   onManageTeam,
   onTrackStatus,
@@ -400,21 +427,27 @@ function EventCard({
 }: {
   event: EventView;
   highlight: string | null;
+  filter: Filter;
+  canManage: boolean;
+  userId?: string;
+  isAdmin: boolean;
   onEdit: () => void;
   onManageTeam: () => void;
   onTrackStatus: (request: RequestView) => void;
   onCancelEvent: () => void;
   onCancelRequest: (request: RequestView) => void;
 }) {
-  const canCancelEvent = event.status !== 'CANCELLED' && event.status !== 'COMPLETED';
+  const isOpen = event.status !== 'CANCELLED' && event.status !== 'COMPLETED';
+  const canManageRequest = (request: RequestView) => isAdmin || event.creatorId === userId ||
+    request.submittedById === userId || event.facultyCoordinatorId !== userId;
 
   return (
-    <article className="event-card">
+    <article className="event-card" id={`event-${event.id}`}>
       <div className="event-card-head">
         <div>
           <div className="event-title-row">
             <h2>{event.title}</h2>
-            <EventStatusBadge status={event.status} />
+            {(event.requests.length === 0 || !isOpen) && <EventStatusBadge status={event.status} />}
           </div>
           {event.description && <p className="event-description">{event.description}</p>}
           <div className="event-meta">
@@ -425,18 +458,14 @@ function EventCard({
               <CalendarBlank size={15} /> Created {formatDate(event.createdAt)}
             </span>
             <span>{event.department.code}</span>
-            {event.facultyCoordinator ? (
-              <span className="coordinator-badge">
-                <ChalkboardTeacher size={15} /> Prof. {event.facultyCoordinator.firstName}{' '}
+            {event.facultyCoordinator && (
+              <span>
+                <ChalkboardTeacher size={15} aria-hidden="true" /> {event.facultyCoordinator.firstName}{' '}
                 {event.facultyCoordinator.lastName}
               </span>
-            ) : (
-              <span
-                className="coordinator-badge is-missing"
-                title="A faculty coordinator from your department is required before student venue requests"
-              >
-                <WarningCircle size={15} /> No faculty coordinator
-              </span>
+            )}
+            {event.creatorId !== userId && (
+              <span>{event.facultyCoordinatorId === userId ? 'You coordinate' : 'Assigned event'}</span>
             )}
           </div>
         </div>
@@ -444,19 +473,19 @@ function EventCard({
           <Button variant="secondary" size="sm" onClick={onManageTeam}>
             <UsersThree size={15} /> Event team
           </Button>
-          {event.status !== 'CANCELLED' && event.status !== 'COMPLETED' && (
+          {isOpen && canManage && (
             <Button variant="secondary" size="sm" onClick={onEdit}>
               <NotePencil size={15} /> Edit details
             </Button>
           )}
-          {event.status !== 'CANCELLED' &&
-            event.status !== 'COMPLETED' &&
-            !event.requests.some((r) => OPEN_STATUSES.has(r.status) || r.status === 'CONFIRMED') && (
+          {isOpen && event.requests.length > 0 &&
+            !event.requests.some((r) => OPEN_STATUSES.has(r.status) || r.status === 'CONFIRMED') &&
+            !event.requests.some((r) => r.status === 'REJECTED' || r.status === 'SUPERSEDED_CONFLICT') && (
               <Link to={`/venues?eventId=${event.id}`} className="btn btn-secondary btn-sm">
                 <CalendarBlank size={15} /> Reschedule venue
               </Link>
             )}
-          {canCancelEvent && (
+          {isOpen && canManage && (
             <Button variant="danger-ghost" size="sm" onClick={onCancelEvent}>
               <Prohibit size={15} /> Cancel event
             </Button>
@@ -470,18 +499,18 @@ function EventCard({
           <div>
             <strong>No venue requested yet</strong>
             <p>
-              {!event.facultyCoordinatorId
-                ? 'Assign a faculty coordinator under "Event team" before submitting venue requests.'
-                : 'Choose a venue and a date to submit this event for approval.'}
+              {isOpen ? 'Choose a venue and a date to submit this event for approval.' : 'This event is closed.'}
             </p>
           </div>
-          <Link to={`/venues?eventId=${event.id}`} className="btn btn-secondary btn-sm">
-            Choose a venue
-          </Link>
+          {isOpen && (
+            <Link to={`/venues?eventId=${event.id}`} className="btn btn-primary btn-sm">
+              Choose a venue
+            </Link>
+          )}
         </div>
       ) : (
         <ul className="booking-history">
-          {event.requests.map((request) => (
+          {event.requests.filter((request) => matchesFilter(request, filter)).map((request) => (
             <li
               key={request.id}
               className={`booking-row ${highlight === request.id ? 'is-highlighted' : ''}`}
@@ -500,7 +529,7 @@ function EventCard({
               </span>
               <span className="booking-row-status">
                 <RequestStatusBadge status={request.status} />
-                {request.requiresFacultyEndorsement && (
+                {request.requiresFacultyEndorsement && OPEN_STATUSES.has(request.status) && (
                   <span
                     className={`endorsement-pill ${
                       request.facultyEndorsedAt ? 'is-endorsed' : 'is-pending'
@@ -530,7 +559,7 @@ function EventCard({
                 <Link to={`/venues/${request.venue.id}`} className="btn btn-ghost btn-sm">
                   View calendar
                 </Link>
-                {OPEN_STATUSES.has(request.status) && (
+                {canManageRequest(request) && OPEN_STATUSES.has(request.status) && (
                   <Link
                     to={`/venues/${request.venue.id}?editRequest=${request.id}`}
                     className="btn btn-secondary btn-sm"
@@ -549,7 +578,7 @@ function EventCard({
                       Reschedule
                     </Link>
                   )}
-                {(OPEN_STATUSES.has(request.status) || request.status === 'CONFIRMED') && (
+                {canManageRequest(request) && (OPEN_STATUSES.has(request.status) || request.status === 'CONFIRMED') && (
                   <Button
                     variant="danger-ghost"
                     size="sm"

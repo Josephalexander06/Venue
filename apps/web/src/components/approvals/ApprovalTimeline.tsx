@@ -1,11 +1,10 @@
 import {
   CheckCircle,
   Clock,
-  DotsThreeCircle,
   WarningCircle,
   XCircle,
 } from '@phosphor-icons/react';
-import { ROLE_LABELS, WORKFLOW_SCOPE_LABELS } from '@venue/shared';
+import { APPROVAL_DECISION_LABELS, ROLE_LABELS, WORKFLOW_SCOPE_LABELS } from '@venue/shared';
 import type { ApprovalDecisionView, ApprovalTimelineStep } from '../../lib/api';
 import { formatDate } from '../../lib/format';
 
@@ -27,7 +26,7 @@ export function ApprovalTimeline({
   return (
     <div className="approval-timeline-wrapper">
       <div className="approval-timeline-head">
-        <h4>Approval workflow</h4>
+        <h2>Approval history</h2>
         {currentRound && currentRound > 1 && (
           <span className="approval-round-badge">Review round {currentRound}</span>
         )}
@@ -39,7 +38,6 @@ export function ApprovalTimeline({
           const isRejected = step.state === 'REJECTED';
           const isChanges = step.state === 'CHANGES_REQUESTED';
           const isCurrent = step.state === 'CURRENT';
-          const isPending = step.state === 'PENDING';
 
           let stateClass = 'is-pending';
           if (isDone) stateClass = 'is-approved';
@@ -48,7 +46,7 @@ export function ApprovalTimeline({
           else if (isCurrent) stateClass = 'is-current';
 
           return (
-            <li key={step.id} className={`approval-timeline-node ${stateClass}`}>
+            <li key={step.id} className={`approval-timeline-node ${stateClass}`} aria-current={isCurrent ? 'step' : undefined}>
               <div className="approval-timeline-marker" aria-hidden="true">
                 {isDone ? (
                   <CheckCircle size={22} weight="fill" />
@@ -66,15 +64,10 @@ export function ApprovalTimeline({
               <div className="approval-timeline-content">
                 <div className="approval-timeline-title-row">
                   <span className="approval-step-name">{step.stepName}</span>
-                  <span className="approval-role-badge">
+                  <span className="approval-stage-scope">
                     {ROLE_LABELS[step.requiredRole]} · {WORKFLOW_SCOPE_LABELS[step.scopeType]}
+                    {step.isFinalAllotmentStep && ' · Final approver'}
                   </span>
-                  {step.stepOrder === 0 && (
-                    <span className="approval-endorsement-badge">Preliminary endorsement</span>
-                  )}
-                  {step.isFinalAllotmentStep && (
-                    <span className="approval-final-badge">Final allotment</span>
-                  )}
                 </div>
 
                 {step.decision && (
@@ -104,11 +97,7 @@ export function ApprovalTimeline({
                   </p>
                 )}
 
-                {isPending && !step.decision && (
-                  <p className="approval-timeline-status-muted">
-                    <DotsThreeCircle size={15} /> Pending completion of prior steps
-                  </p>
-                )}
+
               </div>
             </li>
           );
@@ -137,7 +126,7 @@ export function ApprovalTimeline({
                   <span className="approval-round-label">Round {decision.round}</span>
                   <span className="approval-step-name">{decision.stepName}</span>
                   <span className={`status-pill ${decision.decision.toLowerCase()}`}>
-                    {decision.decision}
+                    {APPROVAL_DECISION_LABELS[decision.decision]}
                   </span>
                 </div>
                 <p className="approval-history-meta">

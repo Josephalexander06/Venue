@@ -14,11 +14,9 @@ export function RegistrationPendingPage() {
         <span className="success-emblem" aria-hidden="true">
           <SealCheck size={34} weight="duotone" />
         </span>
-        <p className="eyebrow">Request received</p>
         <h1>Your account is in the review queue</h1>
         <p className="auth-subtitle">
-          Thank you for registering. An administrator will verify your details and assign the
-          right level of access.
+          A college administrator will review your request before you can sign in.
         </p>
 
         {email && (
@@ -40,7 +38,7 @@ export function RegistrationPendingPage() {
               <span>Your account details are securely saved.</span>
             </span>
           </li>
-          <li className="timeline-step is-current">
+          <li className="timeline-step is-current" aria-current="step">
             <span className="timeline-marker">
               <ClockCountdown size={18} weight="fill" aria-hidden="true" />
             </span>
@@ -61,16 +59,12 @@ export function RegistrationPendingPage() {
         </ol>
 
         <p className="pending-note">
-          If your details need correction, contact the college administrator. You do not need
-          to register again.
+          Contact your college administrator if you need to correct any details.
         </p>
 
         <div className="pending-actions">
           <Link to="/login" className="btn btn-secondary btn-lg">
             <ArrowLeft size={17} aria-hidden="true" /> Back to sign in
-          </Link>
-          <Link to="/register" className="text-link">
-            Register another account
           </Link>
         </div>
       </div>

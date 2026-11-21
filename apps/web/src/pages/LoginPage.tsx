@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowRight, EnvelopeSimple, LockKey } from '@phosphor-icons/react';
+import { ArrowRight, EnvelopeSimple } from '@phosphor-icons/react';
 import { api, ApiError, fieldError } from '../lib/api';
 import { useAuth, usePageTitle } from '../auth';
 import { AuthLayout } from '../components/AuthLayout';
@@ -28,7 +28,7 @@ export function LoginPage() {
   const generalError =
     error && (error.code !== 'VALIDATION_ERROR' || !error.fieldErrors)
       ? error.message
-      : null;
+      : login.isError && !error ? 'Could not connect. Try signing in again.' : null;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -42,10 +42,9 @@ export function LoginPage() {
   return (
     <AuthLayout>
       <div className="auth-card">
-        <p className="eyebrow">Welcome back</p>
-        <h1>Sign in to your workspace</h1>
+        <h1>Sign in</h1>
         <p className="auth-subtitle">
-          Use the college email linked to your approved account.
+          Use your approved college account to book venues and manage requests.
         </p>
 
         {generalError && (
@@ -97,11 +96,6 @@ export function LoginPage() {
         <p className="auth-switch">
           New to Campus Venue? <Link to="/register">Request an account</Link>
         </p>
-
-        <div className="auth-note">
-          <LockKey size={16} aria-hidden="true" />
-          <span>Access is limited to accounts reviewed and approved by an administrator.</span>
-        </div>
       </div>
     </AuthLayout>
   );

@@ -47,7 +47,7 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop-chromium',
-      testMatch: '**/booking.spec.ts',
+      testMatch: ['**/booking.spec.ts', '**/screenshot.spec.ts'],
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 960 } },
     },
     {

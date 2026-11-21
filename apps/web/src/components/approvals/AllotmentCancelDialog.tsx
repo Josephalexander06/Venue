@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { WarningCircle } from '@phosphor-icons/react';
 import type { RequestDetailView } from '../../lib/api';
 import { formatDate } from '../../lib/format';
 import { formatTimeRange } from '../../lib/datetime';
@@ -26,6 +25,7 @@ export function AllotmentCancelDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
     setError(null);
 
     if (reason.trim().length < 3) {
@@ -48,31 +48,21 @@ export function AllotmentCancelDialog({
     <Dialog
       open={open}
       onClose={() => onOpenChange(false)}
-      title="Cancel Confirmed Venue Allotment"
-      description="Release the reserved time slot on the public campus calendar."
+      title="Cancel this reservation?"
+      description="The venue and its setup and cleanup windows will be released on the campus calendar."
     >
       <form onSubmit={handleSubmit} className="allotment-dialog-form">
-        <div className="allotment-cancel-warning">
-          <WarningCircle size={22} weight="fill" className="text-danger" />
-          <div>
-            <strong>Are you sure you want to cancel this reservation?</strong>
-            <p>
-              Cancelling will release the slot for <strong>{request.venue.name}</strong> on{' '}
-              {formatDate(request.startTime)} ({formatTimeRange(request.startTime, request.endTime)}). Any competing
-              organizers who were previously superseded will be notified that the slot has reopened.
-            </p>
-          </div>
-        </div>
-
-        <div className="allotment-summary-card">
-          <h4 className="allotment-event-title">{event.title}</h4>
-          <p className="allotment-dept-meta">
-            {event.department.name} · Headcount: {event.expectedAttendance}
-          </p>
+        <div className="allotment-review">
+          <h3>{event.title}</h3>
+          <dl>
+            <div><dt>Venue</dt><dd>{request.venue.name}</dd></div>
+            <div><dt>Event time</dt><dd>{formatDate(request.startTime)} · {formatTimeRange(request.startTime, request.endTime)}</dd></div>
+          </dl>
         </div>
 
         <TextareaField
-          label="Cancellation reason (required)"
+          label="Cancellation reason"
+          maxLength={1000}
           hint="Visible in the cancellation notice and audit history."
           value={reason}
           onChange={(e) => setReason(e.target.value)}
@@ -84,10 +74,10 @@ export function AllotmentCancelDialog({
 
         <div className="dialog-actions">
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>
-            Keep Booking
+            Keep reservation
           </Button>
           <Button type="submit" variant="danger" disabled={submitting} loading={submitting}>
-            {submitting ? 'Releasing slot…' : 'Cancel Allotment & Release Slot'}
+            {submitting ? 'Releasing slot…' : 'Cancel reservation'}
           </Button>
         </div>
       </form>

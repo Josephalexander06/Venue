@@ -3,6 +3,7 @@ import {
   CaretRight,
   Clock,
   Info,
+  WarningCircle,
 } from '@phosphor-icons/react';
 import { Button, Spinner } from './ui';
 import type { CalendarEntry } from '../lib/api';
@@ -27,6 +28,7 @@ interface VenueCalendarProps {
   anchor: Date;
   selectedDate: Date;
   loading?: boolean;
+  unavailable?: boolean;
   onModeChange: (mode: CalendarMode) => void;
   onAnchorChange: (date: Date) => void;
   onSelectDate: (date: Date) => void;
@@ -81,12 +83,17 @@ export function VenueCalendar({
   anchor,
   selectedDate,
   loading = false,
+  unavailable = false,
   onModeChange,
   onAnchorChange,
   onSelectDate,
 }: VenueCalendarProps) {
   const today = new Date();
   const title = mode === 'day' ? formatLongDay(selectedDate) : titleFor(anchor, mode);
+  const visibleRange = mode === 'month' ? monthGridRange(anchor) : {
+    start: startOfWeek(anchor), end: addDays(startOfWeek(anchor), 7),
+  };
+  const selectedInView = selectedDate >= visibleRange.start && selectedDate < visibleRange.end;
 
   function goToday() {
     onAnchorChange(today);
@@ -122,7 +129,7 @@ export function VenueCalendar({
           <Button variant="ghost" size="sm" onClick={goToday}>
             Today
           </Button>
-          <h2 className="calendar-title">{title}</h2>
+          <h2 className="calendar-title" aria-live="polite">{title}</h2>
         </div>
         <div className="calendar-modes" role="group" aria-label="Calendar view">
           {(['month', 'week', 'day'] as const).map((value) => (
@@ -146,6 +153,9 @@ export function VenueCalendar({
         <span className="legend-item">
           <span className="legend-swatch is-pending" aria-hidden="true" /> Pending request
         </span>
+        <span className="legend-item legend-overlap">
+          <WarningCircle size={15} aria-hidden="true" /> Overlap
+        </span>
         <span className="legend-note">
           <Info size={14} aria-hidden="true" /> Pending requests do not guarantee the venue.
         </span>
@@ -155,7 +165,7 @@ export function VenueCalendar({
         <div className="calendar-loading" role="status">
           <Spinner size={18} /> Loading calendar…
         </div>
-      ) : mode === 'month' ? (
+      ) : unavailable ? null : mode === 'month' ? (
         <MonthView
           entries={entries}
           anchor={anchor}
@@ -172,6 +182,13 @@ export function VenueCalendar({
         />
       ) : (
         <DayView entries={entries} selectedDate={selectedDate} />
+      )}
+
+      {!loading && !unavailable && selectedInView && mode !== 'day' && (
+        <section className="calendar-selection" aria-labelledby="calendar-selection-date">
+          <h3 id="calendar-selection-date">{formatLongDay(selectedDate)}</h3>
+          <DayView entries={entries} selectedDate={selectedDate} />
+        </section>
       )}
     </section>
   );
@@ -195,20 +212,22 @@ function MonthView({
   const currentMonth = anchor.getMonth();
 
   return (
-    <div className="calendar-month" role="grid" aria-label="Month calendar">
+    <div className="calendar-month" role="group" aria-label="Choose a date">
       {WEEKDAYS.map((day) => (
-        <div className="calendar-weekday" role="columnheader" key={day}>
+        <div className="calendar-weekday" aria-hidden="true" key={day}>
           {day}
         </div>
       ))}
       {days.map((day) => {
         const dayEntries = entriesForDay(entries, day);
         const isOutside = day.getMonth() !== currentMonth;
+        const hasOverlap = dayEntries.some((entry) =>
+          entries.some((other) => other.id !== entry.id && overlaps(entry, other)),
+        );
         return (
           <button
             key={dateKey(day)}
             type="button"
-            role="gridcell"
             className={[
               'calendar-day',
               isOutside ? 'is-outside' : '',
@@ -221,10 +240,13 @@ function MonthView({
               onSelectDate(day);
               if (isOutside) onAnchorChange(startOfMonth(day));
             }}
-            aria-label={`${formatLongDay(day)}, ${dayEntries.length} booking${dayEntries.length === 1 ? '' : 's'}`}
-            aria-selected={sameDay(day, selectedDate)}
+            aria-label={`${formatLongDay(day)}, ${dayEntries.length} entries${hasOverlap ? ', overlap' : ''}`}
+            aria-pressed={sameDay(day, selectedDate)}
           >
-            <span className="calendar-day-number">{day.getDate()}</span>
+            <span className="calendar-date-head">
+              <span className="calendar-day-number">{day.getDate()}</span>
+              {hasOverlap && <WarningCircle size={15} className="calendar-overlap-icon" aria-hidden="true" />}
+            </span>
             <span className="calendar-day-entries">
               {dayEntries.slice(0, 3).map((entry) => {
                 const isOverlap = entries.some(
@@ -275,7 +297,8 @@ function WeekView({
             type="button"
             className={`calendar-week-day ${sameDay(day, selectedDate) ? 'is-selected' : ''} ${sameDay(day, new Date()) ? 'is-today' : ''}`}
             onClick={() => onSelectDate(day)}
-            aria-label={`${formatLongDay(day)}, ${dayEntries.length} booking${dayEntries.length === 1 ? '' : 's'}`}
+            aria-label={`${formatLongDay(day)}, ${dayEntries.length} entries`}
+            aria-pressed={sameDay(day, selectedDate)}
           >
             <span className="calendar-week-head">
               <span>{new Intl.DateTimeFormat('en-GB', { weekday: 'short' }).format(day)}</span>
@@ -318,8 +341,7 @@ function DayView({ entries, selectedDate }: { entries: CalendarEntry[]; selected
     return (
       <div className="calendar-day-empty">
         <Clock size={28} weight="duotone" aria-hidden="true" />
-        <h3>No bookings on {formatLongDay(selectedDate)}</h3>
-        <p>The venue is open. Choose a start and end time to request this slot.</p>
+        <p>No requests or reservations on this date.</p>
       </div>
     );
   }
