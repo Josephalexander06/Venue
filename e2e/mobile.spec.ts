@@ -43,4 +43,8 @@ test('mobile venue calendar and booking form stay usable', async ({ page }) => {
     await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible();
     await expectNoHorizontalOverflow();
   }
+
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
 });

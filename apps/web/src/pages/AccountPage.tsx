@@ -1,5 +1,3 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { ROLE_LABELS } from '@venue/shared';
 import { SignOut } from '@phosphor-icons/react';
 import { useAuth, usePageTitle } from '../auth';
@@ -8,27 +6,16 @@ import { Avatar, Button, PageHeader, ROLE_DESCRIPTIONS, StatusBadge } from '../c
 export function AccountPage() {
   usePageTitle('My account');
   const { user, logout } = useAuth();
-  const navigate = useNavigate();
-  const [signingOut, setSigningOut] = useState(false);
 
   if (!user) return null;
-
-  async function handleSignOut() {
-    setSigningOut(true);
-    try {
-      await logout();
-    } finally {
-      navigate('/login', { replace: true });
-    }
-  }
 
   return (
     <>
       <PageHeader
         title="My account"
         actions={
-          <Button variant="secondary" onClick={handleSignOut} loading={signingOut}>
-            {!signingOut && <SignOut size={17} aria-hidden="true" />} Sign out
+          <Button variant="secondary" onClick={() => void logout()}>
+            <SignOut size={17} aria-hidden="true" /> Sign out
           </Button>
         }
       />

@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ROLE_LABELS, type RoleName } from '@venue/shared';
 import {
@@ -17,7 +16,7 @@ import {
 } from '@phosphor-icons/react';
 import { useAuth } from '../auth';
 import { api } from '../lib/api';
-import { Avatar, BrandLockup, Spinner } from './ui';
+import { Avatar, BrandLockup } from './ui';
 
 const ROLE_PRIORITY: RoleName[] = [
   'ADMINISTRATOR',
@@ -42,9 +41,7 @@ function navClass({ isActive }: { isActive: boolean }) {
 
 export function AppShell() {
   const { user, isAdmin, isApprover, isFacultyOnlyApprover, logout } = useAuth();
-  const navigate = useNavigate();
   const { pathname } = useLocation();
-  const [signingOut, setSigningOut] = useState(false);
 
   const stats = useQuery({
     queryKey: ['admin', 'stats'],
@@ -76,16 +73,6 @@ export function AppShell() {
     approvals: approvalLabel,
     account: 'My account',
   }[pathname.split('/')[1] ?? ''];
-
-  async function handleSignOut() {
-    setSigningOut(true);
-    try {
-      await logout();
-    } finally {
-      navigate('/login', { replace: true });
-      setSigningOut(false);
-    }
-  }
 
   return (
     <>
@@ -146,8 +133,8 @@ export function AppShell() {
               </span>
               <CaretRight size={15} aria-hidden="true" />
             </Link>
-            <button type="button" className="sidebar-signout" onClick={handleSignOut} disabled={signingOut}>
-              {signingOut ? <Spinner size={17} /> : <SignOut size={17} aria-hidden="true" />}
+            <button type="button" className="sidebar-signout" onClick={() => void logout()}>
+              <SignOut size={17} aria-hidden="true" />
               Sign out
             </button>
           </div>

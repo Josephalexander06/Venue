@@ -3,6 +3,46 @@ import { login, loginAsAdmin } from './helpers/auth.js';
 
 test.setTimeout(180_000);
 
+test('sign-out hides the overview while a late statistics request is rejected', async ({ page }) => {
+  let releaseStats = () => {};
+  const statsGate = new Promise<void>((resolve) => { releaseStats = resolve; });
+  let releaseLogout = () => {};
+  const logoutGate = new Promise<void>((resolve) => { releaseLogout = resolve; });
+
+  await page.route('**/api/v1/admin/stats', async (route) => {
+    await statsGate;
+    await route.continue();
+  });
+  await page.route('**/api/v1/auth/logout', async (route) => {
+    const response = await route.fetch();
+    releaseStats();
+    await logoutGate;
+    await route.fulfill({ response });
+  });
+
+  const statsRequested = page.waitForRequest('**/api/v1/admin/stats');
+  try {
+    await loginAsAdmin(page);
+    await expect(page.getByRole('heading', { name: 'Administration overview' })).toBeVisible();
+    await statsRequested;
+
+    const statsResponse = page.waitForResponse('**/api/v1/admin/stats');
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    expect((await statsResponse).status()).toBe(401);
+    await expect(page.getByRole('status').getByText('Signing out…')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Administration overview' })).toBeHidden();
+    await expect(page.getByText('Could not load account statistics')).toBeHidden();
+  } finally {
+    releaseStats();
+    releaseLogout();
+  }
+
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+  await page.goto('/admin');
+  await expect(page).toHaveURL(/\/login$/);
+});
+
 function futureDate(days = 30) {
   const date = new Date();
   date.setDate(date.getDate() + days);

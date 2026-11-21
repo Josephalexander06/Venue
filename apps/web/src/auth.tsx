@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useState,
   type ReactNode,
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -13,7 +14,7 @@ import {
   type RoleName,
   type SessionUser,
 } from '@venue/shared';
-import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from './lib/api';
 import { FullPageLoader } from './components/ui';
 
@@ -34,9 +35,12 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [signingOut, setSigningOut] = useState(false);
   const session = useQuery({
     queryKey: ME_KEY,
     queryFn: () => api.getMe(),
+    enabled: !signingOut,
     retry: false,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
@@ -50,15 +54,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
+    setSigningOut(true);
     try {
       await api.logout();
     } catch {
       // Regardless of server response or network state, always clear client session
     } finally {
-      queryClient.clear();
-      queryClient.setQueryData(ME_KEY, null);
+      await queryClient.cancelQueries();
+      setSession(null);
+      const sessionQuery = queryClient.getQueryCache().find({ queryKey: ME_KEY, exact: true });
+      queryClient.removeQueries({ predicate: (query) => query !== sessionQuery });
+      queryClient.getMutationCache().clear();
+      void navigate('/login', { replace: true });
+      setSigningOut(false);
     }
-  }, [queryClient]);
+  }, [navigate, queryClient, setSession]);
 
   const user = session.data?.user ?? null;
   const value = useMemo<AuthContextValue>(
@@ -79,7 +89,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user, session.isPending, setSession, logout],
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {signingOut ? <FullPageLoader label="Signing out…" /> : children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {
