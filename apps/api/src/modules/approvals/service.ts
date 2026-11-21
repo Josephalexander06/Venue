@@ -31,6 +31,7 @@ import {
   type EventSummary,
 } from '../requests/view.js';
 import {
+  effectiveStepScope,
   eligibleForStep,
   loadViewerRoles,
   type ViewerRole,
@@ -277,7 +278,7 @@ export async function listApprovalInbox(
           stepOrder: row.currentStepOrder,
           stepName: row.stepName,
           requiredRole: row.requiredRole,
-          scopeType: row.scopeType,
+          scopeType: effectiveStepScope(row, row.venueDepartmentId),
           isFinalAllotmentStep: row.isFinalAllotmentStep,
         },
         conflicts: {

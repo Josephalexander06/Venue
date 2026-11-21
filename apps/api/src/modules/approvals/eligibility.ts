@@ -21,25 +21,28 @@ export async function loadViewerRoles(db: DbExecutor, userId: string): Promise<V
     .where(eq(userRoles.userId, userId));
 }
 
+export function effectiveStepScope(step: ScopedStep, venueDepartmentId: string | null) {
+  return step.requiredRole === 'HOD' && venueDepartmentId ? 'VENUE_DEPARTMENT' : step.scopeType;
+}
+
 export function eligibleForStep(
   viewerRoles: ViewerRole[],
   step: ScopedStep,
   creatorDepartmentId: string,
   venueDepartmentId: string | null,
+  allowAdminOverride = true,
 ) {
-  if (step.scopeType === 'VENUE_DEPARTMENT' && !venueDepartmentId) return false;
+  const scope = effectiveStepScope(step, venueDepartmentId);
+  if (scope === 'VENUE_DEPARTMENT' && !venueDepartmentId) return false;
   const expectedDepartment =
-    step.scopeType === 'CREATOR_DEPARTMENT'
+    scope === 'CREATOR_DEPARTMENT'
       ? creatorDepartmentId
-      : step.scopeType === 'VENUE_DEPARTMENT'
-        ? venueDepartmentId
-        : null;
+      : venueDepartmentId;
   return viewerRoles.some(
     (entry) =>
-      (entry.role === step.requiredRole || entry.role === 'ADMINISTRATOR') &&
-      (step.scopeType === 'COLLEGE_WIDE'
-        ? true
-        : entry.role === 'ADMINISTRATOR' || entry.departmentId === expectedDepartment),
+      (allowAdminOverride && entry.role === 'ADMINISTRATOR') ||
+      (entry.role === step.requiredRole &&
+        (scope === 'COLLEGE_WIDE' || entry.departmentId === expectedDepartment)),
   );
 }
 

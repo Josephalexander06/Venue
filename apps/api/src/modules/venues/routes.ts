@@ -10,6 +10,7 @@ import {
 import type { Database } from '../../db/index.js';
 import { parseInput } from '../../lib/validation.js';
 import { assertCalendarWindow, parseInstant } from '../../lib/booking.js';
+import { assertEventViewAccess, findEventRow } from '../events/service.js';
 import {
   archiveVenue,
   checkAvailability,
@@ -21,12 +22,22 @@ import {
 } from './service.js';
 
 const idParamsSchema = z.object({ id: z.string().uuid() });
+const bookingVenueListQuery = venueListQuerySchema.extend({ eventId: z.string().uuid().optional() });
 
 const venueRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) => {
   const adminOnly = { preHandler: app.requireRole('ADMINISTRATOR' as const) };
 
   app.get('/venues', { preHandler: app.authenticate }, async (request) => {
-    const query = parseInput(venueListQuerySchema, request.query);
+    const { eventId, ...query } = parseInput(bookingVenueListQuery, request.query);
+    if (eventId) {
+      const event = await findEventRow(db, eventId);
+      const user = request.auth!.user;
+      await assertEventViewAccess(db, event, {
+        userId: user.id,
+        isAdmin: user.roles.some((entry) => entry.role === 'ADMINISTRATOR'),
+      });
+      query.minCapacity = Math.max(query.minCapacity ?? 0, event.expectedAttendance);
+    }
     return listVenues(db, { ...query, active: true });
   });
 

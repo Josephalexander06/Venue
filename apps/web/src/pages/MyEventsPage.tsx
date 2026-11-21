@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CalendarBlank,
@@ -90,7 +90,7 @@ interface EditTarget {
 }
 
 interface CancelTarget {
-  type: 'event' | 'request';
+  type: 'event' | 'request' | 'booking';
   id: string;
   label: string;
 }
@@ -98,6 +98,7 @@ interface CancelTarget {
 export function MyEventsPage() {
   usePageTitle('My events');
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
   const highlight = params.get('highlight');
   const { hash } = useLocation();
@@ -156,10 +157,13 @@ export function MyEventsPage() {
       };
       return target.event ? api.updateEvent(target.event.id, input) : api.createEvent(input);
     },
-    onSuccess: async (_result, target) => {
+    onSuccess: async (result, target) => {
+      queryClient.setQueryData(['event', result.event.id], result);
+      if (!target.event) {
+        void navigate(`/venues?eventId=${result.event.id}`, { replace: true });
+      }
       await invalidate();
-      closeEditor();
-      if (!target.event) setFilter('all');
+      if (target.event) closeEditor();
       pushToast({ tone: 'success', title: target.event ? 'Event details updated' : 'Event created' });
     },
   });
@@ -170,7 +174,7 @@ export function MyEventsPage() {
     onSuccess: async (_result, target) => {
       await invalidate();
       setCancelTarget(null);
-      pushToast({ tone: 'success', title: target.type === 'event' ? 'Event cancelled' : 'Booking cancelled' });
+      pushToast({ tone: 'success', title: `Cancelled ${target.type}` });
     },
   });
 
@@ -276,7 +280,7 @@ export function MyEventsPage() {
               }
               onCancelRequest={(request) =>
                 setCancelTarget({
-                  type: 'request',
+                  type: request.status === 'CONFIRMED' ? 'booking' : 'request',
                   id: request.id,
                   label: `${event.title} at ${request.venue.name}`,
                 })
@@ -363,16 +367,18 @@ export function MyEventsPage() {
       <Dialog
         open={Boolean(cancelTarget)}
         onClose={() => setCancelTarget(null)}
-        title={cancelTarget?.type === 'event' ? 'Cancel this event?' : 'Cancel this request?'}
+        title={`Cancel this ${cancelTarget?.type ?? 'event'}?`}
         description={
           cancelTarget?.type === 'event'
             ? 'This also cancels every open booking request for the event.'
-            : 'The slot is released immediately if it was confirmed.'
+            : cancelTarget?.type === 'booking'
+              ? 'The reserved slot is released. If this is the last booking, the event is also cancelled.'
+              : 'If this is the last request, the event is also cancelled.'
         }
         footer={
           <>
             <Button variant="ghost" size="md" onClick={() => setCancelTarget(null)}>
-              Keep booking
+              Keep {cancelTarget?.type}
             </Button>
             <Button
               variant="danger"
@@ -380,7 +386,7 @@ export function MyEventsPage() {
               loading={cancel.isPending}
               onClick={() => cancelTarget && cancel.mutate(cancelTarget)}
             >
-              Cancel booking
+              Cancel {cancelTarget?.type}
             </Button>
           </>
         }
@@ -440,6 +446,8 @@ function EventCard({
   const isOpen = event.status !== 'CANCELLED' && event.status !== 'COMPLETED';
   const canManageRequest = (request: RequestView) => isAdmin || event.creatorId === userId ||
     request.submittedById === userId || event.facultyCoordinatorId !== userId;
+  const activeRequests = event.requests.filter((r) => OPEN_STATUSES.has(r.status) || r.status === 'CONFIRMED');
+  const requestCancellationClosesEvent = activeRequests.length === 1 && canManageRequest(activeRequests[0]!);
 
   return (
     <article className="event-card" id={`event-${event.id}`}>
@@ -485,7 +493,7 @@ function EventCard({
                 <CalendarBlank size={15} /> Reschedule venue
               </Link>
             )}
-          {isOpen && canManage && (
+          {isOpen && canManage && !requestCancellationClosesEvent && (
             <Button variant="danger-ghost" size="sm" onClick={onCancelEvent}>
               <Prohibit size={15} /> Cancel event
             </Button>
@@ -584,7 +592,7 @@ function EventCard({
                     size="sm"
                     onClick={() => onCancelRequest(request)}
                   >
-                    {request.status === 'CONFIRMED' ? 'Cancel booking' : 'Cancel'}
+                    {request.status === 'CONFIRMED' ? 'Cancel booking' : 'Cancel request'}
                   </Button>
                 )}
               </span>

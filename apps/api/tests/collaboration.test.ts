@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import type { WorkflowScopeType } from '@venue/shared';
 import { buildApp } from '../src/app.js';
 import { parseEnv } from '../src/env.js';
 import { type Database } from '../src/db/index.js';
@@ -37,7 +38,10 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
     await closeTestDatabase();
   });
 
-  async function createVenueWithHodWorkflow(deptId: string) {
+  async function createVenueWithHodWorkflow(
+    deptId: string | null,
+    scopeType: WorkflowScopeType = 'CREATOR_DEPARTMENT',
+  ) {
     const [wf] = await db
       .insert(approvalWorkflows)
       .values({
@@ -51,7 +55,7 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
       stepOrder: 1,
       stepName: 'HOD Approval',
       requiredRole: 'HOD',
-      scopeType: 'CREATOR_DEPARTMENT',
+      scopeType,
       isFinalAllotmentStep: true,
     });
 
@@ -142,11 +146,23 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
     expect(request.facultyEndorserId).toBeNull();
   });
 
-  it('rejects cross-department or non-faculty user as faculty coordinator', async () => {
+  it('lists and accepts active faculty across departments without exposing contact information', async () => {
     const student = await createTestUser({ role: 'STUDENT', departmentCode: 'CS' });
     const meFaculty = await createTestUser({ role: 'FACULTY', departmentCode: 'ME' });
     const otherStudent = await createTestUser({ role: 'STUDENT', departmentCode: 'CS' });
+    const inactive = await createTestUser({ role: 'FACULTY', departmentCode: 'ME', status: 'SUSPENDED' });
     const studentSession = await login(app, student.user.email, student.password);
+
+    const directoryUrl = '/api/v1/events/faculty-candidates';
+    expect((await app.inject(directoryUrl)).statusCode).toBe(401);
+    const directory = await app.inject({ url: directoryUrl, headers: mutationHeaders(studentSession) });
+    expect(directory.statusCode).toBe(200);
+    expect(directory.json().candidates).toEqual([{
+      userId: meFaculty.user.id,
+      firstName: meFaculty.user.firstName,
+      lastName: meFaculty.user.lastName,
+      departmentName: meFaculty.department.name,
+    }]);
 
     const eventRes = await app.inject({
       method: 'POST',
@@ -166,8 +182,8 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
       headers: mutationHeaders(studentSession),
       payload: { facultyCoordinatorId: meFaculty.user.id },
     });
-    expect(crossDeptRes.statusCode).toBe(400);
-    expect(crossDeptRes.json().code).toBe('COORDINATOR_DEPARTMENT_MISMATCH');
+    expect(crossDeptRes.statusCode).toBe(200);
+    expect(crossDeptRes.json().team.facultyCoordinator.userId).toBe(meFaculty.user.id);
 
     // Student role as coordinator
     const studentCoordRes = await app.inject({
@@ -178,6 +194,15 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
     });
     expect(studentCoordRes.statusCode).toBe(400);
     expect(studentCoordRes.json().code).toBe('INVALID_FACULTY_COORDINATOR');
+
+    const inactiveCoordRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${event.id}/coordinator`,
+      headers: mutationHeaders(studentSession),
+      payload: { facultyCoordinatorId: inactive.user.id },
+    });
+    expect(inactiveCoordRes.statusCode).toBe(400);
+    expect(inactiveCoordRes.json().code).toBe('INVALID_FACULTY_COORDINATOR');
   });
 
   it('supports event collaboration: student organizers can submit requests for the event', async () => {
@@ -287,18 +312,20 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
     expect(removeOrgRes.statusCode).toBe(200);
   });
 
-  it('routes student request to faculty coordinator endorsement stage and advances to venue workflow upon approval', async () => {
+  it('routes endorsement to the assigned coordinator and HOD approval to the venue owner', async () => {
     const student = await createTestUser({ role: 'STUDENT', departmentCode: 'CS' });
-    const coordinator = await createTestUser({ role: 'FACULTY', departmentCode: 'CS' });
+    const coordinator = await createTestUser({ role: 'FACULTY', departmentCode: 'ME' });
     const otherFaculty = await createTestUser({ role: 'FACULTY', departmentCode: 'CS' });
-    const hod = await createTestUser({ role: 'HOD', departmentCode: 'CS' });
+    const hod = await createTestUser({ role: 'HOD', departmentCode: 'ME' });
+    const studentHod = await createTestUser({ role: 'HOD', departmentCode: 'CS' });
 
     const studentSession = await login(app, student.user.email, student.password);
     const coordSession = await login(app, coordinator.user.email, coordinator.password);
     const otherFacultySession = await login(app, otherFaculty.user.email, otherFaculty.password);
     const hodSession = await login(app, hod.user.email, hod.password);
+    const studentHodSession = await login(app, studentHod.user.email, studentHod.password);
 
-    const { venue } = await createVenueWithHodWorkflow(student.department.id);
+    const { venue } = await createVenueWithHodWorkflow(hod.department.id);
 
     // Create event and request
     const eventRes = await app.inject({
@@ -325,6 +352,10 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
       },
     });
     const { request } = reqRes.json();
+
+    const inboxUrl = '/api/v1/approvals/inbox';
+    const beforeEndorsement = await app.inject({ url: inboxUrl, headers: mutationHeaders(hodSession) });
+    expect(beforeEndorsement.json().items).toEqual([]);
 
     // 1. Request appears in assigned coordinator's inbox
     const coordInboxRes = await app.inject({
@@ -396,6 +427,21 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
     expect(endorsed.request.facultyEndorserId).toBe(coordinator.user.id);
     expect(endorsed.request.facultyEndorsedAt).toBeTruthy();
 
+    const ownerInbox = await app.inject({ url: inboxUrl, headers: mutationHeaders(hodSession) });
+    expect(ownerInbox.json().items).toMatchObject([{
+      request: { id: request.id },
+      step: { stepOrder: 1, scopeType: 'VENUE_DEPARTMENT' },
+    }]);
+    const studentHodInbox = await app.inject({ url: inboxUrl, headers: mutationHeaders(studentHodSession) });
+    expect(studentHodInbox.json().items).toEqual([]);
+    const wrongHodDecision = await app.inject({
+      method: 'POST',
+      url: `/api/v1/approvals/${request.id}/decision`,
+      headers: mutationHeaders(studentHodSession),
+      payload: { decision: 'APPROVED' },
+    });
+    expect(wrongHodDecision.statusCode).toBe(403);
+
     // 7. Now HOD can approve the request
     const hodDecisionRes = await app.inject({
       method: 'POST',
@@ -422,6 +468,54 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
       .where(eq(venueRequests.id, request.id));
     expect(finalReq?.status).toBe('CONFIRMED');
   });
+
+  it.each(['COLLEGE_WIDE', 'CREATOR_DEPARTMENT', 'VENUE_DEPARTMENT'] as const)(
+    'honors %s scope for a college-wide venue',
+    async (scopeType) => {
+      const faculty = await createTestUser({ role: 'FACULTY', departmentCode: 'CS' });
+      const hod = await createTestUser({ role: 'HOD', departmentCode: 'ME' });
+      const facultySession = await login(app, faculty.user.email, faculty.password);
+      const { venue } = await createVenueWithHodWorkflow(null, scopeType);
+      const headers = mutationHeaders(facultySession);
+      const event = await app.inject({
+        method: 'POST',
+        url: '/api/v1/events',
+        headers,
+        payload: { title: 'College Workshop', expectedAttendance: 25 },
+      });
+      const submission = await app.inject({
+        method: 'POST',
+        url: '/api/v1/venue-requests',
+        headers,
+        payload: {
+          eventId: event.json().event.id,
+          venueId: venue.id,
+          startTime: '2026-11-27T14:00:00Z',
+          endTime: '2026-11-27T17:00:00Z',
+        },
+      });
+      if (scopeType === 'VENUE_DEPARTMENT') {
+        expect(submission.statusCode).toBe(409);
+        expect(submission.json().code).toBe('VENUE_WORKFLOW_SCOPE_INVALID');
+        return;
+      }
+      expect(submission.statusCode).toBe(201);
+      const hodSession = await login(app, hod.user.email, hod.password);
+      const inbox = await app.inject({
+        url: '/api/v1/approvals/inbox',
+        headers: mutationHeaders(hodSession),
+      });
+      expect(inbox.statusCode).toBe(200);
+      if (scopeType === 'COLLEGE_WIDE') {
+        expect(inbox.json().items).toMatchObject([{
+          request: { id: submission.json().request.id },
+          step: { scopeType },
+        }]);
+      } else {
+        expect(inbox.json().items).toEqual([]);
+      }
+    },
+  );
 
   it('bypasses Stage 0 endorsement when request is submitted directly by faculty', async () => {
     const faculty = await createTestUser({ role: 'FACULTY', departmentCode: 'CS' });

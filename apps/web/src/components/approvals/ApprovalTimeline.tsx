@@ -65,7 +65,8 @@ export function ApprovalTimeline({
                 <div className="approval-timeline-title-row">
                   <span className="approval-step-name">{step.stepName}</span>
                   <span className="approval-stage-scope">
-                    {ROLE_LABELS[step.requiredRole]} · {WORKFLOW_SCOPE_LABELS[step.scopeType]}
+                    {step.stepOrder === 0 ? 'Assigned coordinator' :
+                      `${ROLE_LABELS[step.requiredRole]} · ${WORKFLOW_SCOPE_LABELS[step.scopeType]}`}
                     {step.isFinalAllotmentStep && ' · Final approver'}
                   </span>
                 </div>

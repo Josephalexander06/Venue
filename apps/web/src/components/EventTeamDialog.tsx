@@ -10,12 +10,12 @@ import {
 import type { EventSummary } from '../lib/api';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../auth';
+import { FacultyCoordinatorField } from './FacultyCoordinatorField';
 import {
   Alert,
   Avatar,
   Button,
   Dialog,
-  SelectField,
   Skeleton,
   TextField,
   useToast,
@@ -41,15 +41,7 @@ export function EventTeamDialog({ event, onClose }: EventTeamDialogProps) {
     queryFn: () => api.eventTeam(event.id),
   });
 
-  // Fetch department faculty for coordinator assignment
-  const facultyQuery = useQuery({
-    queryKey: ['department-faculty', event.department.id],
-    queryFn: () => api.departmentFaculty(event.department.id),
-    staleTime: 60_000,
-  });
-
   const team = teamQuery.data?.team;
-  const facultyList = facultyQuery.data?.faculty ?? [];
 
   // Coordinator mutation
   const setCoordMutation = useMutation({
@@ -199,27 +191,20 @@ export function EventTeamDialog({ event, onClose }: EventTeamDialogProps) {
                 <WarningCircle size={20} className="text-amber" />
                 <div className="alert-copy">
                   <strong>No coordinator assigned</strong>
-                  <p>Students cannot submit venue requests until an active faculty member from {event.department.code} is assigned.</p>
+                  <p>Assign an active faculty member so students can submit venue requests.</p>
                 </div>
               </div>
             )}
 
             {isCreatorOrAdmin && (
               <div className="coordinator-assign-form">
-                <SelectField
+                <FacultyCoordinatorField
                   label={team.facultyCoordinator ? 'Change coordinator' : 'Assign coordinator'}
                   name="faculty-coordinator"
                   value={selectedCoordId || (team.facultyCoordinator?.userId ?? '')}
-                  onChange={(e) => setSelectedCoordId(e.target.value)}
-                  disabled={setCoordMutation.isPending || facultyQuery.isPending}
-                >
-                  <option value="">Select a faculty member from {event.department.code}…</option>
-                  {facultyList.map((f) => (
-                    <option key={f.userId} value={f.userId}>
-                      {f.firstName} {f.lastName} ({f.email})
-                    </option>
-                  ))}
-                </SelectField>
+                  onChange={setSelectedCoordId}
+                  disabled={setCoordMutation.isPending}
+                />
                 {selectedCoordId && selectedCoordId !== team.facultyCoordinator?.userId && (
                   <Button
                     size="sm"

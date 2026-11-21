@@ -37,7 +37,6 @@ const departmentRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db 
           id: users.id,
           firstName: users.firstName,
           lastName: users.lastName,
-          email: users.email,
           departmentId: departments.id,
           departmentCode: departments.code,
           departmentName: departments.name,
@@ -62,7 +61,6 @@ const departmentRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db 
           userId: r.id,
           firstName: r.firstName,
           lastName: r.lastName,
-          email: r.email,
           department: {
             id: r.departmentId,
             code: r.departmentCode,

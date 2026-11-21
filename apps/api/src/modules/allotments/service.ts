@@ -246,14 +246,9 @@ export async function confirmAllotment(
       }
 
       // If an administrator is overriding an allotment step where they are not normally eligible, require remarks
-      const normallyEligible = finalStep
-        ? viewerRoles.some(
-            (r) =>
-              r.role === finalStep.requiredRole &&
-              (finalStep.scopeType === 'COLLEGE_WIDE' ||
-                r.departmentId === reqRow.departmentId),
-          )
-        : false;
+      const normallyEligible = finalStep && eligibleForStep(
+        viewerRoles, finalStep, reqRow.departmentId, reqRow.venueDepartmentId, false,
+      );
 
       if (viewer.isAdmin && !normallyEligible) {
         if (!input.remarks || input.remarks.trim().length < 5) {

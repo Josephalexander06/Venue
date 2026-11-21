@@ -32,7 +32,7 @@ export function VenuesPage() {
   const eventId = params.get('eventId');
   const search = params.get('q') ?? '';
   const departmentId = params.get('department') ?? '';
-  const minCapacity = readGuestCount(params);
+  const guestFilter = eventId ? null : readGuestCount(params);
   const proposedSlot = readVenueSlot(params);
   const checkedSlot = proposedSlot && proposedSlot.from >= new Date() ? proposedSlot : null;
 
@@ -40,7 +40,7 @@ export function VenuesPage() {
   const [date, setDate] = useState(() => checkedSlot?.date ?? dateInputValue(addDays(new Date(), 1)));
   const [start, setStart] = useState(checkedSlot?.start ?? '10:00');
   const [end, setEnd] = useState(checkedSlot?.end ?? '12:00');
-  const [guests, setGuests] = useState(minCapacity ? String(minCapacity) : '');
+  const [guests, setGuests] = useState(guestFilter ? String(guestFilter) : '');
   const [timeError, setTimeError] = useState('');
   const [offset, setOffset] = useState(0);
 
@@ -50,11 +50,21 @@ export function VenuesPage() {
     staleTime: 5 * 60_000,
   });
 
+  const eventQuery = useQuery({
+    queryKey: ['event', eventId],
+    queryFn: () => api.event(eventId!),
+    enabled: Boolean(eventId),
+  });
+  const savedEvent = eventQuery.data?.event;
+  const minCapacity = savedEvent?.expectedAttendance ?? guestFilter;
+
   const venues = useQuery({
-    queryKey: ['venues', { search: deferredSearch, departmentId, minCapacity, offset }],
+    queryKey: ['venues', { eventId, search: deferredSearch, departmentId, minCapacity, offset }],
+    enabled: !eventId || Boolean(savedEvent),
     queryFn: () =>
       api.venues({
         active: true,
+        eventId: eventId ?? undefined,
         search: deferredSearch || undefined,
         departmentId: departmentId || undefined,
         minCapacity: minCapacity ?? undefined,
@@ -64,7 +74,7 @@ export function VenuesPage() {
   });
 
   const total = venues.data?.total ?? 0;
-  const visible = venues.data?.venues ?? [];
+  const visible = (venues.data?.venues ?? []).filter((venue) => venue.capacity >= (minCapacity ?? 0));
   const availability = useQueries({
     queries: checkedSlot ? visible.map((venue) => venueAvailabilityOptions(venue.id, checkedSlot)) : [],
   });
@@ -79,7 +89,7 @@ export function VenuesPage() {
     cards.sort((left, right) => AVAILABILITY_ORDER[left.state!] - AVAILABILITY_ORDER[right.state!]);
   }
   const canRequestCount = cards.filter(({ state }) => state === 'open' || state === 'competing').length;
-  const hasFilters = Boolean(search || departmentId || minCapacity);
+  const hasFilters = Boolean(search || departmentId || guestFilter);
 
   function changeFilter(name: string, value: string) {
     setParams((current) => {
@@ -119,11 +129,11 @@ export function VenuesPage() {
       next.set('date', date);
       next.set('start', start);
       next.set('end', end);
-      if (guests) next.set('guests', guests);
+      if (!eventId && guests) next.set('guests', guests);
       else next.delete('guests');
       return next;
     }, { replace: true });
-    if (offset === 0 && guests === String(minCapacity ?? '') &&
+    if (offset === 0 && (eventId || guests === String(guestFilter ?? '')) &&
       checkedSlot?.from.getTime() === slot.from.getTime() && checkedSlot.to.getTime() === slot.to.getTime()) {
       for (const query of availability) void query.refetch();
     }
@@ -134,12 +144,13 @@ export function VenuesPage() {
       <section className="venue-search-panel" aria-label="Find a venue by date and time">
         <PageHeader
           title="Find the right space"
-          description={eventId
-            ? 'Check a date and time for your saved event.'
-            : 'Choose a date and time, then compare spaces for your event.'}
+          description={savedEvent
+            ? `${savedEvent.title} · ${savedEvent.expectedAttendance} expected attendees`
+            : eventId ? 'Check a date and time for your saved event.'
+              : 'Choose a date and time, then compare spaces for your event.'}
           actions={<Link to="/my-events" className="text-link venue-search-events">My events <ArrowRight size={16} aria-hidden="true" /></Link>}
         />
-        <form className="venue-slot-form" onSubmit={checkSlot}>
+        <form className={eventId ? 'venue-slot-form venue-slot-form-event' : 'venue-slot-form'} onSubmit={checkSlot}>
           <BookingDateField label="Event date" name="venue-date" value={date} onChange={(value) => { setDate(value); setTimeError(''); }} />
           <TextField label="Start time" name="venue-start" type="time" value={start} onChange={(event) => {
             setStart(event.target.value);
@@ -149,8 +160,10 @@ export function VenuesPage() {
             setEnd(event.target.value);
             setTimeError('');
           }} required />
-          <TextField label="Guests" name="venue-guests" type="number" min={1} max={100_000}
-            placeholder="Any" value={guests} onChange={(event) => setGuests(event.target.value)} optional />
+          {!eventId && (
+            <TextField label="Guests" name="venue-guests" type="number" min={1} max={100_000}
+              placeholder="Any" value={guests} onChange={(event) => setGuests(event.target.value)} optional />
+          )}
           <Button type="submit" size="lg" className="venue-slot-submit">
             <MagnifyingGlass size={19} aria-hidden="true" /> Check availability
           </Button>
@@ -165,7 +178,8 @@ export function VenuesPage() {
             <p role="status">
               {checkedSlot
                 ? <>{formatLongDay(checkedSlot.from)} · {formatTimeRange(checkedSlot.from, checkedSlot.to)}{minCapacity && ` · ${minCapacity} guests`}</>
-                : 'Browse all spaces accepting requests.'}
+                : savedEvent ? `Showing spaces for at least ${savedEvent.expectedAttendance} people.`
+                  : 'Browse all spaces accepting requests.'}
             </p>
           </div>
           <div className="venue-catalog-filters" aria-label="Venue filters">
@@ -187,7 +201,11 @@ export function VenuesPage() {
           </div>
         </div>
 
-        {venues.isError ? (
+        {eventId && eventQuery.isError && !savedEvent ? (
+          <Alert tone="danger" title="Could not load the saved event">
+            <button type="button" className="inline-link" onClick={() => void eventQuery.refetch()}>Try again</button>
+          </Alert>
+        ) : venues.isError ? (
           <Alert tone="danger" title="Could not load venues">
             <button type="button" className="inline-link" onClick={() => void venues.refetch()}>Try again</button>
           </Alert>
@@ -200,10 +218,12 @@ export function VenuesPage() {
           <div className="card">
             <EmptyState
               icon={<MagnifyingGlass size={26} />}
-              title={hasFilters ? 'No venues match these filters' : 'No venues accepting requests'}
+              title={hasFilters ? 'No venues match these filters'
+                : savedEvent ? 'No venues fit this event' : 'No venues accepting requests'}
               description={hasFilters
-                ? 'Try a different search, department or guest count.'
-                : 'Check the venue catalog again later.'}
+                ? savedEvent ? 'Try a different search or department.' : 'Try a different search, department or guest count.'
+                : savedEvent ? `No available venue can hold ${savedEvent.expectedAttendance} people.`
+                  : 'Check the venue catalog again later.'}
               action={hasFilters && <Button variant="secondary" onClick={clearFilters}>Clear filters</Button>}
             />
           </div>

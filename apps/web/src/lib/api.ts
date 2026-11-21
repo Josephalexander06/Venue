@@ -70,6 +70,7 @@ export interface VenueList {
 }
 
 export interface VenueListParams {
+  eventId?: string;
   search?: string;
   building?: string;
   departmentId?: string;
@@ -184,13 +185,11 @@ export interface EventTeamView {
   organizers: EventTeamMember[];
 }
 
-export interface FacultyMember {
-  id: string;
+interface FacultyCandidate {
   userId: string;
   firstName: string;
   lastName: string;
-  email: string;
-  department: { id: string; code: string; name: string };
+  departmentName: string;
 }
 
 export interface OrganizerCandidate {
@@ -466,6 +465,7 @@ export const api = {
 
   venues(params: VenueListParams = {}) {
     const query = new URLSearchParams();
+    if (params.eventId) query.set('eventId', params.eventId);
     if (params.search) query.set('search', params.search);
     if (params.building) query.set('building', params.building);
     if (params.departmentId) query.set('departmentId', params.departmentId);
@@ -527,6 +527,10 @@ export const api = {
 
   event(id: string) {
     return request<{ event: EventView }>(`/events/${id}`);
+  },
+
+  facultyCandidates() {
+    return request<{ candidates: FacultyCandidate[] }>('/events/faculty-candidates');
   },
 
   createEvent(input: EventInput) {
@@ -699,10 +703,6 @@ export const api = {
     return request<null>(`/admin/departments/${id}`, {
       method: 'DELETE',
     });
-  },
-
-  departmentFaculty(departmentId: string) {
-    return request<{ faculty: FacultyMember[] }>(`/departments/${departmentId}/faculty`);
   },
 
   eventTeam(eventId: string) {

@@ -15,6 +15,7 @@ import {
   createEvent,
   getEventTeam,
   getEventView,
+  listFacultyCandidates,
   listMyEvents,
   listOrganizerCandidates,
   removeEventOrganizer,
@@ -54,6 +55,10 @@ const eventRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) =>
 
   app.get('/events/mine', bookingOnly, async (request) => {
     return { events: await listMyEvents(db, request.auth!.user.id) };
+  });
+
+  app.get('/events/faculty-candidates', bookingOnly, async () => {
+    return { candidates: await listFacultyCandidates(db) };
   });
 
   app.get('/events/:id', bookingOnly, async (request) => {

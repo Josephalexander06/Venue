@@ -373,7 +373,7 @@ export function WorkflowDialog({ workflow, onClose }: WorkflowDialogProps) {
                         hint={
                           step.requiredRole !== 'HOD'
                             ? 'Non-HOD approvals are college-wide.'
-                            : undefined
+                            : 'Department-managed venues always route to their own HOD. This setting applies to college-wide venues.'
                         }
                       >
                         {WORKFLOW_SCOPE_TYPES.map((scope) => (

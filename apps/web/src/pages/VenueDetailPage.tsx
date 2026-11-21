@@ -11,8 +11,9 @@ import {
 } from '@phosphor-icons/react';
 import { api, ApiError, fieldError } from '../lib/api';
 import { useAuth, usePageTitle } from '../auth';
-import { useToast, Alert, Button, PageHeader, SelectField, Skeleton, TextField, TextareaField } from '../components/ui';
+import { useToast, Alert, Button, PageHeader, Skeleton, TextField, TextareaField } from '../components/ui';
 import { BookingDateField } from '../components/BookingDateField';
+import { FacultyCoordinatorField } from '../components/FacultyCoordinatorField';
 import { VenueCalendar, type CalendarMode } from '../components/VenueCalendar';
 import {
   addDays,
@@ -54,14 +55,6 @@ export function VenueDetailPage() {
   const [attendance, setAttendance] = useState(() => String(readGuestCount(searchParams) ?? 30));
   const [draftEventId, setDraftEventId] = useState<string | null>(null);
   const [facultyCoordinatorId, setFacultyCoordinatorId] = useState('');
-
-  const facultyQuery = useQuery({
-    queryKey: ['department-faculty', user?.department?.id],
-    queryFn: () => (user?.department?.id ? api.departmentFaculty(user.department.id) : { faculty: [] }),
-    enabled: Boolean(user?.department?.id) && Boolean(isStudent),
-    staleTime: 60_000,
-  });
-  const facultyMembers = facultyQuery.data?.faculty ?? [];
 
   const venueQuery = useQuery({
     queryKey: ['venue', id],
@@ -147,6 +140,7 @@ export function VenueDetailPage() {
     editRequest &&
     ['CANCELLED', 'REJECTED', 'SUPERSEDED_CONFLICT', 'CONFIRMED'].includes(editRequest.status);
   const draftEvent = draftEventQuery.data?.event;
+  const savedEvent = Boolean(!editing && (draftEventIdParam || draftEventId));
   const hasActiveRequest = Boolean(
     draftEvent?.requests?.some((r) =>
       ['SUBMITTED', 'IN_REVIEW', 'APPROVED_PENDING_ALLOTMENT', 'CONFIRMED'].includes(r.status),
@@ -159,7 +153,7 @@ export function VenueDetailPage() {
         hasActiveRequest),
   );
 
-  const capacity = Number(attendance);
+  const capacity = draftEvent?.expectedAttendance ?? Number(attendance);
   const capacityValid = venue ? Number.isInteger(capacity) && capacity >= 1 && capacity <= venue.capacity : false;
   const hasConfirmedConflict = availabilityQuery.data?.hasConfirmedConflict ?? false;
   const pendingConflicts = availabilityQuery.data?.pendingConflicts ?? [];
@@ -174,7 +168,7 @@ export function VenueDetailPage() {
     (!editing || editQuery.isSuccess) &&
     (!draftEventIdParam || draftEventQuery.isSuccess) &&
     !startsInPast &&
-    Boolean(title.trim().length >= 3) &&
+    Boolean((draftEvent?.title ?? title).trim().length >= 3) &&
     capacityValid &&
     Boolean(slot) &&
     !hasConfirmedConflict &&
@@ -520,65 +514,71 @@ export function VenueDetailPage() {
               )}
 
               <h3 className="booking-section-title">Event details</h3>
-              {draftEvent && (
-                <p className="booking-draft-note">Update saved event details from <Link className="inline-link" to="/my-events">My events</Link>.</p>
+              {savedEvent ? (
+                <div className="booking-draft-note">
+                  {(draftEvent || draftEventId) && (
+                    <>
+                      <strong>{draftEvent?.title ?? title}</strong>
+                      <p>{capacity} expected · Venue capacity {venue.capacity}</p>
+                      {(draftEvent?.description ?? description) && <p>{draftEvent?.description ?? description}</p>}
+                    </>
+                  )}
+                  {draftEvent?.facultyCoordinator && (
+                    <p>Coordinator: {draftEvent.facultyCoordinator.firstName} {draftEvent.facultyCoordinator.lastName}</p>
+                  )}
+                  <Link className="inline-link" to="/my-events">Manage event details</Link>
+                  {(draftEvent || draftEventId) && capacity > venue.capacity && (
+                    <Alert tone="danger">This venue is too small for your event.</Alert>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <TextField
+                    label="Event title"
+                    name="booking-title"
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    placeholder="e.g. Robotics club showcase"
+                    maxLength={200}
+                    minLength={3}
+                    required
+                    error={submit.error ? fieldError(submit.error, 'event.title') : undefined}
+                  />
+                  <TextareaField
+                    label="Description"
+                    name="booking-description"
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                    placeholder="Purpose, audience and any setup notes"
+                    rows={3}
+                    maxLength={2000}
+                    optional
+                  />
+                  <TextField
+                    label="Expected attendance"
+                    name="booking-attendance"
+                    type="number"
+                    min={1}
+                    max={venue.capacity}
+                    value={attendance}
+                    onChange={(event) => setAttendance(event.target.value)}
+                    hint={`This venue holds up to ${venue.capacity} people.`}
+                    required
+                    error={submit.error ? fieldError(submit.error, 'event.expectedAttendance') : undefined}
+                  />
+                </>
               )}
-              <TextField
-                label="Event title"
-                name="booking-title"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="e.g. Robotics club showcase"
-                maxLength={200}
-                minLength={3}
-                readOnly={Boolean(draftEvent || draftEventId)}
-                required
-                error={submit.error ? fieldError(submit.error, 'event.title') : undefined}
-              />
-              <TextareaField
-                label="Description"
-                name="booking-description"
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder="Purpose, audience and any setup notes"
-                rows={3}
-                maxLength={2000}
-                readOnly={Boolean(draftEvent || draftEventId)}
-                optional
-              />
-              <TextField
-                label="Expected attendance"
-                name="booking-attendance"
-                type="number"
-                min={1}
-                max={venue.capacity}
-                value={attendance}
-                onChange={(event) => setAttendance(event.target.value)}
-                readOnly={Boolean(draftEvent || draftEventId)}
-                hint={`This venue holds up to ${venue.capacity} people.`}
-                required
-                error={submit.error ? fieldError(submit.error, 'event.expectedAttendance') : undefined}
-              />
 
-              {isStudent && !editing && (
+              {isStudent && !editing && !draftEvent?.facultyCoordinatorId && (
                 <div className="faculty-endorsement-banner">
-                  <SelectField
+                  <FacultyCoordinatorField
                     label="Designated faculty coordinator"
                     name="booking-faculty-coordinator"
                     value={facultyCoordinatorId}
-                    onChange={(e) => setFacultyCoordinatorId(e.target.value)}
+                    onChange={setFacultyCoordinatorId}
                     required
                     hint="Your coordinator endorses the request before it moves to venue approvals."
-                  >
-                    <option value="">
-                      Select a faculty coordinator from {user?.department?.name ?? 'your department'}…
-                    </option>
-                    {facultyMembers.map((f) => (
-                      <option key={f.userId} value={f.userId}>
-                        {f.firstName} {f.lastName} ({f.email})
-                      </option>
-                    ))}
-                  </SelectField>
+                  />
                 </div>
               )}
 

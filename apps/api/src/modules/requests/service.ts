@@ -22,6 +22,7 @@ import { writeAudit } from '../../lib/audit.js';
 import { assertBookingInterval, bufferedRange, parseInstant } from '../../lib/booking.js';
 import { AppError } from '../../lib/errors.js';
 import {
+  effectiveStepScope,
   eligibleForStep,
   isWorkflowParticipant,
   loadViewerRoles,
@@ -434,7 +435,7 @@ export async function getRequestView(
       stepOrder: step.stepOrder,
       stepName: step.stepName,
       requiredRole: step.requiredRole,
-      scopeType: step.scopeType,
+      scopeType: effectiveStepScope(step, row.venueDepartmentId),
       isFinalAllotmentStep: step.isFinalAllotmentStep,
       state:
         decision?.decision ??
@@ -535,7 +536,7 @@ export async function getRequestView(
         stepOrder: step.stepOrder,
         stepName: step.stepName,
         requiredRole: step.requiredRole,
-        scopeType: step.scopeType,
+        scopeType: effectiveStepScope(step, row.venueDepartmentId),
         isFinalAllotmentStep: step.isFinalAllotmentStep,
       })),
     },
@@ -567,6 +568,7 @@ async function loadVenueForBooking(db: DbExecutor, venueId: string) {
       id: venues.id,
       name: venues.name,
       capacity: venues.capacity,
+      departmentId: venues.departmentId,
       isActive: venues.isActive,
       setupBufferMins: venues.setupBufferMins,
       teardownBufferMins: venues.teardownBufferMins,
@@ -604,9 +606,16 @@ async function findConfirmedConflict(
   return conflict ?? null;
 }
 
-async function loadWorkflow(db: DbExecutor, workflowId: string | null) {
-  const resolvedId = await resolveWorkflowId(db, workflowId);
+async function loadWorkflow(db: DbExecutor, venue: { workflowId: string | null; departmentId: string | null }) {
+  const resolvedId = await resolveWorkflowId(db, venue.workflowId);
   const steps = await loadWorkflowSteps(db, resolvedId);
+  if (!venue.departmentId && steps.some((step) => step.scopeType === 'VENUE_DEPARTMENT')) {
+    throw new AppError(
+      409,
+      'VENUE_WORKFLOW_SCOPE_INVALID',
+      'This college-wide venue has a department-scoped approval step. Ask an administrator to update its approval workflow.',
+    );
+  }
   return { workflowId: resolvedId, firstStepOrder: steps[0]!.stepOrder };
 }
 
@@ -695,7 +704,7 @@ export async function createVenueRequest(
       );
     }
 
-    const workflow = await loadWorkflow(tx, venue.workflowId);
+    const workflow = await loadWorkflow(tx, venue);
 
     const callerRoles = await loadViewerRoles(tx, viewer.userId);
     const isFacultyOrAbove =
@@ -862,7 +871,7 @@ export async function updateVenueRequest(
 
     const now = new Date();
     if (critical) {
-      const targetWorkflow = await loadWorkflow(tx, venue.workflowId);
+      const targetWorkflow = await loadWorkflow(tx, venue);
       const restartStepOrder = row.requiresFacultyEndorsement ? 0 : targetWorkflow.firstStepOrder;
 
       await tx

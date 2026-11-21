@@ -3020,9 +3020,19 @@ body:has(dialog[open]) {
   min-height: 44px;
 }
 
+@media (min-width: 861px) {
+  .venue-slot-form-event {
+    grid-template-columns: minmax(142px, 1.3fr) repeat(2, minmax(105px, 0.9fr)) auto;
+  }
+}
+
 @media (min-width: 761px) and (max-width: 860px) {
   .venue-slot-form {
     grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr));
+  }
+
+  .venue-slot-form-event {
+    grid-template-columns: minmax(0, 1.3fr) repeat(2, minmax(0, 1fr));
   }
 
   .venue-slot-submit {

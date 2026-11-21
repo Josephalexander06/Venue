@@ -88,7 +88,7 @@ test('venue search checks the selected date and carries the slot into the reques
 
 async function register(
   page: Page,
-  details: { email: string; firstName: string; lastName: string; password: string },
+  details: { email: string; firstName: string; lastName: string; password: string; department?: string },
 ) {
   await page.goto('/register');
   await page.getByLabel('First name').fill(details.firstName);
@@ -96,8 +96,9 @@ async function register(
   await page.getByLabel('College email').fill(details.email);
 
   const department = page.getByLabel('Department');
-  await expect(department.locator('option', { hasText: 'Computer Science (CS)' })).toHaveCount(1);
-  await department.selectOption({ label: 'Computer Science (CS)' });
+  const departmentLabel = details.department ?? 'Computer Science (CS)';
+  await expect(department.locator('option', { hasText: departmentLabel })).toHaveCount(1);
+  await department.selectOption({ label: departmentLabel });
 
   await page.getByLabel('Password', { exact: true }).fill(details.password);
   await page.getByLabel('Confirm password').fill(details.password);
@@ -145,6 +146,7 @@ test('registration, approval, booking, endorsement and final allotment journey',
     firstName: 'E2E',
     lastName: facultyLastName,
     password: facultyPassword,
+    department: 'Mechanical Engineering (ME)',
   });
   await register(page, {
     email: studentEmail,
@@ -164,34 +166,37 @@ test('registration, approval, booking, endorsement and final allotment journey',
 
   await page.getByRole('link', { name: 'Create event' }).click();
   const draft = page.getByRole('dialog', { name: 'Create an event' });
-  const draftTitle = `E2E Planning Session ${stamp}`;
-  await draft.getByLabel('Event title').fill(draftTitle);
-  await draft.getByLabel('Expected attendance').fill('30');
+  const title = `E2E Robotics Showcase ${stamp}`;
+  await draft.getByLabel('Event title').fill(title);
+  await draft.getByLabel('Description').fill('End-to-end booking flow verification.');
+  await draft.getByLabel('Expected attendance').fill('121');
+  const created = page.waitForResponse((response) =>
+    response.request().method() === 'POST' && response.url().endsWith('/api/v1/events'),
+  );
   await draft.getByRole('button', { name: 'Create event' }).click();
-  await expect(draft).toBeHidden();
-  const draftCard = page.getByRole('article').filter({ has: page.getByRole('heading', { name: draftTitle }) });
-  await expect(draftCard.getByRole('link', { name: 'Choose a venue' })).toBeVisible();
-  await draftCard.getByRole('button', { name: 'Event team' }).click();
-  const teamDialog = page.getByRole('dialog', { name: 'Event team' });
-  await expect(teamDialog.getByRole('heading', { name: 'Organizers' })).toBeVisible();
-  await teamDialog.getByRole('button', { name: 'Done' }).click();
-  await page.goto('/home');
-
-  await page.getByRole('link', { name: 'Browse campus venues' }).click();
+  const { event } = await (await created).json();
+  await expect(page).toHaveURL(new RegExp(`/venues\\?eventId=${event.id}$`));
   await expect(page.getByRole('heading', { name: 'Find the right space' })).toBeVisible();
-  await page.getByRole('link', { name: 'Main Auditorium' }).click();
+  await expect(page.getByText(`${title} · 121 expected attendees`)).toBeVisible();
+  await expect(page.getByLabel('Guests')).toHaveCount(0);
+  await expect(page.getByRole('list', { name: 'Matching venues' }).getByRole('article')).toHaveCount(1);
+  await page.getByLabel('Event date').fill(futureDate());
+  await page.getByRole('button', { name: 'Check availability' }).click();
+  await page.getByRole('link', { name: 'Review this slot for Main Auditorium' }).click();
+  expect(new URL(page.url()).searchParams.get('eventId')).toBe(event.id);
   await expect(page.getByRole('heading', { name: 'Main Auditorium' })).toBeVisible();
   await expect(page.getByText('Pending requests do not guarantee the venue.')).toBeVisible();
 
-  const title = `E2E Robotics Showcase ${stamp}`;
-  await page.getByLabel('Event title').fill(title);
-  await page.getByLabel('Description').fill('End-to-end booking flow verification.');
-  await page.getByLabel('Expected attendance').fill('45');
+  await expect(page.getByLabel('Event title')).toHaveCount(0);
+  await expect(page.getByLabel('Expected attendance')).toHaveCount(0);
+  await expect(page.getByText('121 expected · Venue capacity 500')).toBeVisible();
+  await page.getByRole('searchbox', { name: 'Search faculty' }).fill(`${facultyLastName} mechanical`);
+  await expect(page.getByRole('option', { name: /Select a faculty member/ })).toBeAttached();
+  await expect(page.getByLabel('Designated faculty coordinator').locator('option')).toHaveCount(2);
   await page
     .getByLabel('Designated faculty coordinator')
-    .selectOption({ label: `E2E ${facultyLastName} (${facultyEmail})` });
-  await page.getByLabel('Date', { exact: true }).fill(futureDate());
-  await page.getByLabel('Start', { exact: true }).fill('10:00');
+    .selectOption({ label: `E2E ${facultyLastName} (Mechanical Engineering)` });
+  await expect(page.getByLabel('Date', { exact: true })).toHaveValue(futureDate());
   await page.getByLabel('End', { exact: true }).fill('11:00');
 
   await expect(
@@ -201,7 +206,14 @@ test('registration, approval, booking, endorsement and final allotment journey',
 
   await expect(page).toHaveURL(/\/my-events\?highlight=/);
   await expect(page.getByRole('heading', { name: 'My events' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: title })).toBeVisible();
+  await expect(page.getByRole('heading', { name: title, exact: true })).toHaveCount(1);
+  const pendingEventCard = page.locator(`#event-${event.id}`);
+  await expect(pendingEventCard.getByRole('button', { name: /^Cancel/ })).toHaveCount(1);
+  await expect(pendingEventCard.getByRole('button', { name: 'Cancel request' })).toBeVisible();
+  await pendingEventCard.getByRole('button', { name: 'Event team' }).click();
+  const teamDialog = page.getByRole('dialog', { name: 'Event team' });
+  await expect(teamDialog.getByRole('heading', { name: 'Organizers' })).toBeVisible();
+  await teamDialog.getByRole('button', { name: 'Done' }).click();
   await expect(
     page.getByText('Awaiting approval. Pending requests do not reserve the venue.'),
   ).toBeVisible();
@@ -264,6 +276,7 @@ test('registration, approval, booking, endorsement and final allotment journey',
   await page.goto('/my-events');
   const eventCard = page.locator('.event-card', { hasText: title });
   await expect(eventCard.getByText('Confirmed. The venue is reserved for this event.')).toBeVisible();
+  await expect(eventCard.getByRole('button', { name: /^Cancel/ })).toHaveCount(1);
   await eventCard.getByRole('button', { name: 'Cancel booking' }).click();
   await page
     .getByRole('dialog')
@@ -271,4 +284,20 @@ test('registration, approval, booking, endorsement and final allotment journey',
     .click();
   await expect(page.getByRole('dialog')).toBeHidden();
   await expect(eventCard.getByText('Cancelled', { exact: true }).first()).toBeVisible();
+});
+
+test('shows the capacity empty state and one cancellation action for a draft', async ({ page }) => {
+  await loginAsAdmin(page);
+  await page.goto('/my-events?create=1');
+  const draft = page.getByRole('dialog', { name: 'Create an event' });
+  const title = `Capacity check ${Date.now()}`;
+  await draft.getByLabel('Event title').fill(title);
+  await draft.getByLabel('Expected attendance').fill('10000');
+  await draft.getByRole('button', { name: 'Create event' }).click();
+  await expect(page.getByRole('heading', { name: 'No venues fit this event' })).toBeVisible();
+  await expect(page.getByText('No available venue can hold 10000 people.')).toBeVisible();
+  await page.getByRole('link', { name: 'My events' }).first().click();
+  const event = page.locator('.event-card', { hasText: title });
+  await expect(event.getByRole('button', { name: /^Cancel/ })).toHaveCount(1);
+  await expect(event.getByRole('button', { name: 'Cancel event' })).toBeVisible();
 });

@@ -165,6 +165,38 @@ async function confirmedRequestFor(
 }
 
 describe('venue management', () => {
+  it('uses the saved event attendance as the minimum venue capacity', async () => {
+    const session = await studentSession();
+    const small = await createVenue({ capacity: 79 });
+    const fits = await createVenue({ capacity: 80 });
+    const large = await createVenue({ capacity: 150 });
+    const created = await createEvent(session, { expectedAttendance: 80 });
+    expect(created.statusCode).toBe(201);
+    const eventId: string = created.json().event.id;
+    const url = `/api/v1/venues?eventId=${eventId}`;
+    const headers = mutationHeaders(session);
+
+    for (const query of ['', '&minCapacity=20']) {
+      const list = await app.inject({ url: url + query, headers });
+      expect(list.statusCode).toBe(200);
+      expect(list.json().total).toBe(2);
+      expect(list.json().venues.map((venue: { id: string }) => venue.id).sort())
+        .toEqual([fits.id, large.id].sort());
+    }
+    const stricter = await app.inject({ url: url + '&minCapacity=100', headers });
+    expect(stricter.json()).toMatchObject({ total: 1, venues: [{ id: large.id }] });
+    const empty = await app.inject({ url: url + '&minCapacity=151', headers });
+    expect(empty.json()).toMatchObject({ total: 0, venues: [] });
+    const outsider = await studentSession('ME');
+    expect((await app.inject({ url, headers: mutationHeaders(outsider) })).statusCode).toBe(404);
+
+    const rejected = await requestBooking(
+      session, eventId, small.id, '2026-11-26T10:00:00Z', '2026-11-26T11:00:00Z',
+    );
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json().code).toBe('CAPACITY_EXCEEDED');
+  });
+
   it('restricts venue changes to administrators and supports create, filter, archive and restore', async () => {
     const admin = await adminSession();
     const student = await studentSession();

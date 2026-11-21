@@ -208,28 +208,31 @@ async function requireDepartment(db: DbExecutor, departmentId: string) {
   return row.id;
 }
 
-export async function validateFacultyCoordinator(
-  db: DbExecutor,
-  coordinatorId: string,
-  departmentId: string,
-) {
-  const [candidate] = await db
-    .select({
-      id: users.id,
-      status: users.status,
-      departmentId: users.departmentId,
-      role: roles.name,
+const activeFaculty = and(eq(users.status, 'ACTIVE'), inArray(roles.name, ['FACULTY', 'HOD']));
+
+export function listFacultyCandidates(db: Database) {
+  return db
+    .selectDistinct({
+      userId: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      departmentName: departments.name,
     })
     .from(users)
     .innerJoin(userRoles, eq(userRoles.userId, users.id))
     .innerJoin(roles, eq(roles.id, userRoles.roleId))
-    .where(
-      and(
-        eq(users.id, coordinatorId),
-        eq(users.status, 'ACTIVE'),
-        inArray(roles.name, ['FACULTY', 'HOD']),
-      ),
-    )
+    .innerJoin(departments, eq(departments.id, users.departmentId))
+    .where(activeFaculty)
+    .orderBy(users.firstName, users.lastName, departments.name, users.id);
+}
+
+async function validateFacultyCoordinator(db: DbExecutor, coordinatorId: string) {
+  const [candidate] = await db
+    .select({ id: users.id })
+    .from(users)
+    .innerJoin(userRoles, eq(userRoles.userId, users.id))
+    .innerJoin(roles, eq(roles.id, userRoles.roleId))
+    .where(and(eq(users.id, coordinatorId), activeFaculty))
     .limit(1);
 
   if (!candidate) {
@@ -237,14 +240,6 @@ export async function validateFacultyCoordinator(
       400,
       'INVALID_FACULTY_COORDINATOR',
       'The designated coordinator must be an active faculty member or head of department.',
-    );
-  }
-
-  if (candidate.departmentId !== departmentId) {
-    throw new AppError(
-      400,
-      'COORDINATOR_DEPARTMENT_MISMATCH',
-      'The designated faculty coordinator must belong to the event department.',
     );
   }
 }
@@ -262,7 +257,7 @@ export async function createEvent(
   await requireDepartment(db, departmentId);
 
   if (input.facultyCoordinatorId) {
-    await validateFacultyCoordinator(db, input.facultyCoordinatorId, departmentId);
+    await validateFacultyCoordinator(db, input.facultyCoordinatorId);
   }
 
   const eventId = await db.transaction(async (tx) => {
@@ -322,9 +317,8 @@ export async function updateEvent(
       await requireDepartment(tx, input.departmentId);
     }
 
-    const targetDepartmentId = input.departmentId ?? row.departmentId;
     if (input.facultyCoordinatorId !== undefined && input.facultyCoordinatorId !== null) {
-      await validateFacultyCoordinator(tx, input.facultyCoordinatorId, targetDepartmentId);
+      await validateFacultyCoordinator(tx, input.facultyCoordinatorId);
     }
 
     const attendance = input.expectedAttendance ?? row.expectedAttendance;
@@ -557,7 +551,7 @@ export async function setEventCoordinator(
   const row = await findEventRow(db, eventId);
   assertEventManageAccess(row, viewer);
 
-  await validateFacultyCoordinator(db, input.facultyCoordinatorId, row.departmentId);
+  await validateFacultyCoordinator(db, input.facultyCoordinatorId);
 
   await db.transaction(async (tx) => {
     await tx

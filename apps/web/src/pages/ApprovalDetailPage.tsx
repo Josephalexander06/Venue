@@ -168,7 +168,8 @@ export function ApprovalDetailPage() {
         <div className="approval-detail-main">
           {canDecide && currentStep && (
             <Alert tone="info" title="Decision requested">
-              {currentStep.stepName} ({ROLE_LABELS[currentStep.requiredRole]} · {WORKFLOW_SCOPE_LABELS[currentStep.scopeType]})
+              {currentStep.stepName}
+              {currentStep.stepOrder !== 0 && ` (${ROLE_LABELS[currentStep.requiredRole]} · ${WORKFLOW_SCOPE_LABELS[currentStep.scopeType]})`}
             </Alert>
           )}
           {permissions.canAllot && (
