@@ -221,4 +221,39 @@ describe('venue reservation integrity', () => {
       .catch((error: unknown) => error);
     expect(findPostgresError(tamper)?.message).toMatch(/append-only/);
   });
+
+  it('enforces submitted_by_id NOT NULL constraint and index presence', async () => {
+    const colResult = await db.execute<{ is_nullable: string }>(sql`
+      SELECT is_nullable
+      FROM information_schema.columns
+      WHERE table_name = 'venue_requests' AND column_name = 'submitted_by_id'
+    `);
+    expect(colResult.rows[0]?.is_nullable).toBe('NO');
+
+    const idxResult = await db.execute<{ indexname: string }>(sql`
+      SELECT indexname
+      FROM pg_indexes
+      WHERE tablename = 'venue_requests' AND indexname = 'venue_requests_submitted_by_idx'
+    `);
+    expect(idxResult.rows).toHaveLength(1);
+  });
+
+  it('calculates timezone-safe buffer ranges identically when session timezone is Asia/Kolkata', async () => {
+    const data = await fixture();
+    await db.execute(sql`SET TIME ZONE 'Asia/Kolkata'`);
+    try {
+      const request = await createRequest(data, '2026-12-03T10:00:00Z', '2026-12-03T12:00:00Z');
+      const result = await db.execute<{ lower_utc: string; upper_utc: string }>(sql`
+        SELECT
+          (lower(effective_range) AT TIME ZONE 'UTC')::text AS lower_utc,
+          (upper(effective_range) AT TIME ZONE 'UTC')::text AS upper_utc
+        FROM venue_requests
+        WHERE id = ${request.id}
+      `);
+      expect(result.rows[0]?.lower_utc).toBe('2026-12-03 09:30:00');
+      expect(result.rows[0]?.upper_utc).toBe('2026-12-03 12:30:00');
+    } finally {
+      await db.execute(sql`SET TIME ZONE 'UTC'`);
+    }
+  });
 });

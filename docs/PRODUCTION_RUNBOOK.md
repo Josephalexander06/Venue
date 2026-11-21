@@ -150,11 +150,11 @@ sha256sum --check /var/backups/venue/venue-YYYYMMDDTHHMMSSZ.dump.sha256
 
 ### Restore drill
 
-Always restore to a scratch database first:
+Always restore to a scratch database first (the restore script applies `--disable-triggers` to prevent audit log and derive range trigger conflicts during restoration):
 
 ```bash
 createdb -h 127.0.0.1 -U venue venue_restore_test
-RESTORE_DATABASE_URL="postgres://venue:password@127.0.0.1:5432/venue_restore_test" \
+ALLOW_PRODUCTION_RESTORE=yes RESTORE_DATABASE_URL="postgres://venue:password@127.0.0.1:5432/venue_restore_test" \
   ./scripts/restore-postgres.sh /var/backups/venue/venue-YYYYMMDDTHHMMSSZ.dump
 ```
 
@@ -197,7 +197,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml logs -f pos
 
 Logs are structured JSON from Pino. Cookies and authorization headers are redacted. Configure the Docker log driver to rotate logs (for example `max-size=50m`, `max-file=5`) to avoid filling the disk.
 
-### Notification queue
+### Notification queue & operational recovery
 
 Check failed deliveries:
 
@@ -207,7 +207,13 @@ docker compose --env-file .env.production -f docker-compose.prod.yml exec -T pos
   -c "select status, count(*) from notification_outbox group by status;"
 ```
 
-Inspect recent failures:
+Inspect and recover failed notifications using the administrative API:
+
+1. **List failed notifications:** `GET /api/v1/admin/notifications/failed`
+2. **Retry a single failed notification:** `POST /api/v1/admin/notifications/:id/retry`
+3. **Retry all failed notifications in bulk:** `POST /api/v1/admin/notifications/retry-all`
+
+Alternatively via SQL:
 
 ```sql
 select id, type, attempts, last_error, created_at
@@ -215,9 +221,26 @@ from notification_outbox
 where status = 'FAILED'
 order by created_at desc
 limit 20;
+
+-- Reset selected rows to retry delivery:
+update notification_outbox
+set status = 'PENDING', attempts = 0, next_attempt_at = now(), updated_at = now()
+where status = 'FAILED';
 ```
 
-After fixing the relay, reset selected rows to `PENDING` and set `next_attempt_at = now()`. Do not delete failed rows until they are investigated.
+### Session cleanup
+
+Session records are retained for `SESSION_RETENTION_DAYS` (default: 7) after expiry or revocation. In multi-replica deployments where relying on in-process timers is insufficient, run the cleanup script via external cron or call the admin maintenance endpoint:
+
+```cron
+0 3 * * * cd /opt/venue && set -a && . ./.env.production && set +a && ./scripts/cleanup-sessions.sh >> /var/log/venue-session-cleanup.log 2>&1
+```
+
+Or trigger via authenticated API call:
+
+```bash
+curl -X POST -H "Cookie: venue_session=..." -H "X-CSRF-Token: ..." https://venue.college.edu/api/v1/admin/maintenance/sessions
+```
 
 ### Suggested alerts
 

@@ -5,6 +5,7 @@ import { bufferedRange } from '../../lib/booking.js';
 import { AppError } from '../../lib/errors.js';
 import { notifyRequestParticipants } from '../../lib/notifications.js';
 import { eligibleForStep, loadViewerRoles } from '../approvals/eligibility.js';
+import { isEventCollaborator } from '../events/service.js';
 import { getRequestView } from '../requests/service.js';
 import { mapRequestRow, requestSelection } from '../requests/view.js';
 // Deadlock and serialization retry helper
@@ -44,6 +45,7 @@ export async function confirmAllotment(db, viewer, input, context) {
                 teardownBufferMins: venueRequests.teardownBufferMins,
                 status: venueRequests.status,
                 creatorId: events.creatorId,
+                facultyCoordinatorId: events.facultyCoordinatorId,
                 submittedById: venueRequests.submittedById,
                 eventTitle: events.title,
                 departmentId: events.departmentId,
@@ -116,9 +118,13 @@ export async function confirmAllotment(db, viewer, input, context) {
             if (lockedReq.status !== 'APPROVED_PENDING_ALLOTMENT') {
                 throw new AppError(409, 'REQUEST_NOT_READY_FOR_ALLOTMENT', 'Only requests with completed preliminary approvals can receive final allotment.');
             }
-            // 4. Separation of duties: requester cannot allot their own request
-            if (reqRow.creatorId === viewer.userId || reqRow.submittedById === viewer.userId) {
-                throw new AppError(403, 'SELF_APPROVAL_FORBIDDEN', 'Institutional policy prohibits self-allotment. Another authorized approver must commit the final allotment.');
+            // 4. Separation of duties: requester/collaborator/coordinator cannot allot their own request
+            const isCollaborator = await isEventCollaborator(tx, reqRow.eventId, viewer.userId);
+            if (reqRow.creatorId === viewer.userId ||
+                reqRow.submittedById === viewer.userId ||
+                reqRow.facultyCoordinatorId === viewer.userId ||
+                isCollaborator) {
+                throw new AppError(403, 'SELF_APPROVAL_FORBIDDEN', 'Institutional policy prohibits self-allotment. Event organizers and coordinators cannot commit final allotment for their own event.');
             }
             // 5. Verify final approver authority based on workflow definition
             const steps = await tx
@@ -437,7 +443,8 @@ export async function getCompetingRequests(db, requestId, viewer) {
     if (!targetReq) {
         throw new AppError(404, 'REQUEST_NOT_FOUND', 'Venue request not found.');
     }
-    // Find all requests for this venue overlapping effective range
+    const effective = bufferedRange(targetReq.startTime, targetReq.endTime, targetReq.setupBufferMins, targetReq.teardownBufferMins);
+    // Find all open requests for this venue overlapping effective range
     const rows = await db
         .select({
         ...requestSelection,
@@ -460,7 +467,11 @@ export async function getCompetingRequests(db, requestId, viewer) {
         .innerJoin(events, eq(events.id, venueRequests.eventId))
         .innerJoin(departments, eq(departments.id, events.departmentId))
         .innerJoin(users, eq(users.id, events.creatorId))
-        .where(and(eq(venueRequests.venueId, targetReq.venueId), ne(venueRequests.id, targetReq.id), sql `${venueRequests.effectiveRange} && tstzrange(${targetReq.startTime.toISOString()}, ${targetReq.endTime.toISOString()}, '[)')`))
+        .where(and(eq(venueRequests.venueId, targetReq.venueId), ne(venueRequests.id, targetReq.id), inArray(venueRequests.status, [
+        'SUBMITTED',
+        'IN_REVIEW',
+        'APPROVED_PENDING_ALLOTMENT',
+    ]), sql `${venueRequests.effectiveRange} && tstzrange(${effective.start.toISOString()}, ${effective.end.toISOString()}, '[)')`))
         .orderBy(asc(venueRequests.createdAt));
     return {
         targetRequestId: requestId,

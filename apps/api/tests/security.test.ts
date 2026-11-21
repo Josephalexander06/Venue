@@ -280,4 +280,51 @@ describe('production security controls', () => {
     const deleted = await cleanupSessions(db, 7);
     expect(deleted).toBe(1);
   });
+
+  it('exposes admin maintenance endpoint to reliably purge expired sessions', async () => {
+    const admin = await adminSession();
+    const { user } = await createTestUser({
+      email: `maint-${randomUUID()}@college.edu`,
+      role: 'STUDENT',
+      departmentCode: 'CS',
+    });
+    const session = await createSession(db, user.id, 1, {});
+    const old = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
+    await db
+      .update(sessions)
+      .set({ expiresAt: old, revokedAt: old })
+      .where(eq(sessions.tokenHash, hashToken(session.token)));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/maintenance/sessions',
+      headers: mutationHeaders(admin),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().deleted).toBeGreaterThanOrEqual(1);
+  });
+
+  it('mitigates client IP spoofing behind a reverse proxy with trustProxy: 1', async () => {
+    const proxyApp = await buildApp({
+      db,
+      env: parseEnv({ ...process.env, TRUST_PROXY: 'true' }),
+      logger: false,
+    });
+    try {
+      proxyApp.get('/test-ip', (req) => ({ ip: req.ip }));
+      // Client sends forged X-Forwarded-For: forged, proxy_hop
+      const res = await proxyApp.inject({
+        method: 'GET',
+        url: '/test-ip',
+        headers: {
+          'x-forwarded-for': '203.0.113.195, 198.51.100.1',
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      // Fastify with trustProxy: 1 trusts only 1 hop and selects 198.51.100.1, rejecting the spoofed 203.0.113.195
+      expect(res.json().ip).toBe('198.51.100.1');
+    } finally {
+      await proxyApp.close();
+    }
+  });
 });

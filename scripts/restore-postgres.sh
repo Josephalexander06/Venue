@@ -27,6 +27,7 @@ pg_restore \
   --if-exists \
   --no-owner \
   --no-privileges \
+  --disable-triggers \
   "$backup"
 
 echo "Restore completed. Run the smoke checks in docs/PRODUCTION_RUNBOOK.md."

@@ -1,5 +1,6 @@
 import { and, asc, eq, gt, inArray } from 'drizzle-orm';
-import { approvalDecisions, approvalInstances, departments, events, venueRequests, venues, workflowSteps, } from '../../db/schema.js';
+import { approvalDecisions, approvalInstances, departments, eventOrganizers, events, venueRequests, venues, workflowSteps, } from '../../db/schema.js';
+import { isEventCollaborator } from '../events/service.js';
 import { writeAudit } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { notifyRequestParticipants } from '../../lib/notifications.js';
@@ -57,8 +58,15 @@ export async function listApprovalInbox(db, viewer, page) {
         .innerJoin(approvalInstances, and(eq(approvalInstances.venueRequestId, venueRequests.id), eq(approvalInstances.workflowId, venueRequests.workflowId), eq(approvalInstances.isActive, true)))
         .innerJoin(workflowSteps, and(eq(workflowSteps.workflowId, venueRequests.workflowId), eq(workflowSteps.stepOrder, venueRequests.currentStepOrder), eq(workflowSteps.stepOrder, approvalInstances.currentStepOrder)))
         .where(and(inArray(venueRequests.status, [...INBOX_STATUSES]), gt(venueRequests.currentStepOrder, 0)));
+    const orgRows = await db
+        .select({ eventId: eventOrganizers.eventId })
+        .from(eventOrganizers)
+        .where(eq(eventOrganizers.userId, viewer.userId));
+    const orgEventIds = new Set(orgRows.map((r) => r.eventId));
     const eligibleWorkflowRows = workflowRows.filter((row) => row.creatorId !== viewer.userId &&
         row.submittedById !== viewer.userId &&
+        row.facultyCoordinatorId !== viewer.userId &&
+        !orgEventIds.has(row.eventId) &&
         eligibleForStep(viewerRoles, { requiredRole: row.requiredRole, scopeType: row.scopeType }, row.departmentId, row.venueDepartmentId));
     // 2. Query Step 0 requests (Faculty coordinator endorsement)
     const step0Rows = await db
@@ -201,13 +209,15 @@ export async function decideRequest(db, requestId, viewer, input, context) {
             if (!viewer.isAdmin && event.facultyCoordinatorId !== viewer.userId) {
                 throw new AppError(403, 'APPROVAL_FORBIDDEN', 'You are not the designated faculty coordinator for this event.');
             }
-            const [existingDecision] = await tx
-                .select({ id: approvalDecisions.id, decision: approvalDecisions.decision })
-                .from(approvalDecisions)
-                .where(and(eq(approvalDecisions.approvalInstanceId, instance.id), eq(approvalDecisions.stepOrder, 0), eq(approvalDecisions.decision, input.decision)))
-                .limit(1);
-            if (existingDecision) {
-                throw new AppError(409, 'DUPLICATE_DECISION', 'That decision has already been recorded for this stage.');
+            if (input.decision !== 'CHANGES_REQUESTED') {
+                const [existingDecision] = await tx
+                    .select({ id: approvalDecisions.id, decision: approvalDecisions.decision })
+                    .from(approvalDecisions)
+                    .where(and(eq(approvalDecisions.approvalInstanceId, instance.id), eq(approvalDecisions.stepOrder, 0), eq(approvalDecisions.decision, input.decision)))
+                    .limit(1);
+                if (existingDecision) {
+                    throw new AppError(409, 'DUPLICATE_DECISION', 'That decision has already been recorded for this stage.');
+                }
             }
             await tx.insert(approvalDecisions).values({
                 approvalInstanceId: instance.id,
@@ -301,13 +311,19 @@ export async function decideRequest(db, requestId, viewer, input, context) {
             if (!eligibleForStep(viewerRoles, { requiredRole: step.requiredRole, scopeType: step.scopeType }, event.departmentId, venue.departmentId)) {
                 throw new AppError(403, 'APPROVAL_FORBIDDEN', 'You are not the authorized approver for this stage.');
             }
-            const [existingDecision] = await tx
-                .select({ id: approvalDecisions.id, decision: approvalDecisions.decision })
-                .from(approvalDecisions)
-                .where(and(eq(approvalDecisions.approvalInstanceId, instance.id), eq(approvalDecisions.stepOrder, step.stepOrder), eq(approvalDecisions.decision, input.decision)))
-                .limit(1);
-            if (existingDecision) {
-                throw new AppError(409, 'DUPLICATE_DECISION', 'That decision has already been recorded for this stage.');
+            const isCollaborator = await isEventCollaborator(tx, event.id, viewer.userId);
+            if (event.facultyCoordinatorId === viewer.userId || isCollaborator) {
+                throw new AppError(403, 'SELF_APPROVAL_FORBIDDEN', 'Event organizers and coordinators cannot approve or reject their own event.');
+            }
+            if (input.decision !== 'CHANGES_REQUESTED') {
+                const [existingDecision] = await tx
+                    .select({ id: approvalDecisions.id, decision: approvalDecisions.decision })
+                    .from(approvalDecisions)
+                    .where(and(eq(approvalDecisions.approvalInstanceId, instance.id), eq(approvalDecisions.stepOrder, step.stepOrder), eq(approvalDecisions.decision, input.decision)))
+                    .limit(1);
+                if (existingDecision) {
+                    throw new AppError(409, 'DUPLICATE_DECISION', 'That decision has already been recorded for this stage.');
+                }
             }
             await tx.insert(approvalDecisions).values({
                 approvalInstanceId: instance.id,

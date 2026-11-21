@@ -216,16 +216,17 @@ export function VenueDetailPage() {
         });
       }
 
-      if (draftEvent) {
+      const targetDraftEvent = draftEvent || (draftEventId ? { id: draftEventId, facultyCoordinatorId: null } : null);
+      if (targetDraftEvent) {
         if (
           isStudent &&
           facultyCoordinatorId &&
-          draftEvent.facultyCoordinatorId !== facultyCoordinatorId
+          targetDraftEvent.facultyCoordinatorId !== facultyCoordinatorId
         ) {
-          await api.setEventCoordinator(draftEvent.id, facultyCoordinatorId);
+          await api.setEventCoordinator(targetDraftEvent.id, facultyCoordinatorId);
         }
         return api.createRequest({
-          eventId: draftEvent.id,
+          eventId: targetDraftEvent.id,
           venueId: venue.id,
           startTime: requestedStart.toISOString(),
           endTime: requestedEnd.toISOString(),
@@ -260,6 +261,7 @@ export function VenueDetailPage() {
         title: editing ? 'Booking request updated' : 'Booking request submitted',
         message: 'Pending approval does not reserve the venue yet.',
       });
+      setDraftEventId(null);
       navigate(`/my-events?highlight=${result.request.id}`);
     },
   });

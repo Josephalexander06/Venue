@@ -40,7 +40,7 @@ export async function buildApp({ db, env, logger = true }: BuildAppOptions): Pro
           ],
         }
       : false,
-    trustProxy: env.TRUST_PROXY,
+    trustProxy: env.TRUST_PROXY ? ((_addr: string, hop: number) => hop < 1) : false,
     bodyLimit: 1024 * 1024,
     requestTimeout: 30_000,
     connectionTimeout: 10_000,

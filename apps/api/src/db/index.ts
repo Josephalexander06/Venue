@@ -7,7 +7,7 @@ export type DbTransaction = Parameters<Parameters<Database['transaction']>[0]>[0
 export type DbExecutor = Database | DbTransaction;
 
 export function createDatabase(connectionString: string, max = 10) {
-  const pool = new pg.Pool({ connectionString, max });
+  const pool = new pg.Pool({ connectionString, max, options: '-c timezone=UTC' });
   const db = drizzle(pool, { schema });
   return { pool, db };
 }

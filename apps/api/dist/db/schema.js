@@ -285,7 +285,9 @@ export const approvalDecisions = pgTable('approval_decisions', {
     remarks: text('remarks'),
     decidedAt: timestamp('decided_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-    uniqueIndex('approval_decisions_instance_step_decision_unique').on(table.approvalInstanceId, table.stepOrder, table.decision),
+    uniqueIndex('approval_decisions_instance_step_approved_unique')
+        .on(table.approvalInstanceId, table.stepOrder)
+        .where(sql `${table.decision} = 'APPROVED'`),
     index('approval_decisions_instance_idx').on(table.approvalInstanceId, table.decidedAt),
     index('approval_decisions_approver_idx').on(table.approverId),
 ]);
