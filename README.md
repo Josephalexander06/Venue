@@ -167,14 +167,14 @@ uses a separate Neon PostgreSQL database for durable data.
 
 1. Choose the production Vercel project name or custom domain. Use this origin
    for the backend's `FRONTEND_URL`.
-2. Create a Neon Free project with PostgreSQL 16 in **AWS Asia Pacific
-   (Singapore)** to match `render.yaml`. Copy its direct connection string and
-   use `sslmode=verify-full`. Keep the connection string in your secret store.
+2. Use a Neon PostgreSQL project. For a new project, choose **AWS Asia Pacific
+   (Singapore)** to match `render.yaml`. Keep the connection strings in your
+   secret store and use `sslmode=verify-full`.
 3. From the repository root, initialize the new database with the commands below.
    The seed creates the first administrator, the default workflow, departments,
    and sample venues. Use a unique administrator password.
 4. In Render, create a **Blueprint** from the repository. Supply `DATABASE_URL`
-   with the same Neon connection string and `FRONTEND_URL` with the exact Vercel
+   with the pooled Neon connection string and `FRONTEND_URL` with the exact Vercel
    production origin, such as `https://your-project.vercel.app` with no trailing
    slash. Wait for `/health/ready` to return `{"status":"ready"}`.
 5. Import **web (Vite)** as a standalone Vercel project with **Root Directory**
@@ -212,6 +212,24 @@ uses a separate Neon PostgreSQL database for durable data.
 For future schema changes, run `pnpm db:migrate` with the same `DATABASE_URL`,
 `FRONTEND_URL`, `NODE_ENV`, and `COOKIE_SECURE` before manually deploying the
 corresponding Render revision. Run the seed only when initializing a fresh database.
+
+#### Neon Realtime
+
+`neon.ts` declares Postgres and Realtime. Pull a branch's settings into a
+separate file so `.env` can continue to point at the local Docker database.
+For local development, select a Neon development branch.
+
+```bash
+npx --yes neon@latest env pull --branch YOUR_DEV_BRANCH --services postgres,realtime --file .env.neon-dev
+node --env-file=.env.neon-dev --run db:migrate
+node --env-file=.env.neon-dev --run dev
+```
+
+Fastify and Drizzle use the pooled `DATABASE_URL`. Migrations prefer the
+direct `DATABASE_URL_UNPOOLED` when provided. Add `NEON_REALTIME_URL` and
+`NEON_REALTIME_SECRET` to the Render API environment to wake the notification
+worker when work is queued. Both values stay on the API server. The worker
+also polls to handle scheduled retries and Realtime connection failures.
 
 Vercel Hobby is limited to personal, non-commercial use. Render Free sleeps
 after 15 minutes without traffic and can take about a minute to wake. The in-app

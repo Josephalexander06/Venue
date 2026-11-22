@@ -3,6 +3,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { AppEnv } from '../env.js';
 import type { Database, DbExecutor } from '../db/index.js';
 import { events, notificationOutbox, users, venueRequests } from '../db/schema.js';
+import { startRealtimeNotificationWakeup } from './notification-realtime.js';
 
 interface NotificationInput {
   recipientUserId: string;
@@ -227,13 +228,21 @@ export async function processNotificationBatch(
 
 export function startNotificationWorker(db: Database, env: AppEnv, logger: FastifyBaseLogger) {
   let running = false;
+  let wakeRequested = false;
   let stopped = false;
 
   const tick = async () => {
-    if (running || stopped) return;
+    if (stopped) return;
+    if (running) {
+      wakeRequested = true;
+      return;
+    }
     running = true;
     try {
-      await processNotificationBatch(db, env, logger);
+      do {
+        wakeRequested = false;
+        await processNotificationBatch(db, env, logger);
+      } while (wakeRequested && !stopped);
     } catch (error) {
       logger.error({ err: error }, 'Notification worker failed');
     } finally {
@@ -244,10 +253,12 @@ export function startNotificationWorker(db: Database, env: AppEnv, logger: Fasti
   void tick();
   const timer = setInterval(() => void tick(), env.NOTIFICATION_POLL_MS);
   timer.unref();
+  const stopRealtime = startRealtimeNotificationWakeup(env, logger, () => void tick());
 
   return () => {
     stopped = true;
     clearInterval(timer);
+    stopRealtime?.();
   };
 }
 

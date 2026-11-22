@@ -18,6 +18,9 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   DATABASE_URL: z.string().min(1),
+  DATABASE_URL_UNPOOLED: optionalString(z.string().min(1)),
+  NEON_REALTIME_URL: optionalString(z.url({ protocol: /^wss$/ })),
+  NEON_REALTIME_SECRET: optionalString(z.string().min(1)),
   FRONTEND_URL: z.string().url().default('http://localhost:5173'),
   COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).default('lax'),
   COOKIE_SECURE: booleanFromString,
@@ -38,6 +41,13 @@ const envSchema = z.object({
   SEED_ADMIN_FIRST_NAME: z.string().min(1).default('System'),
   SEED_ADMIN_LAST_NAME: z.string().min(1).default('Administrator'),
 }).superRefine((config, ctx) => {
+  if (Boolean(config.NEON_REALTIME_URL) !== Boolean(config.NEON_REALTIME_SECRET)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['NEON_REALTIME_URL'],
+      message: 'Set NEON_REALTIME_URL and NEON_REALTIME_SECRET together.',
+    });
+  }
   if (config.COOKIE_SAME_SITE === 'none' && !config.COOKIE_SECURE) {
     ctx.addIssue({
       code: 'custom',
