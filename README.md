@@ -158,6 +158,69 @@ per-venue calendar API.
 
 ## Production
 
+### Vercel, Render and Neon
+
+Vercel serves the web app and forwards `/api` and `/health` requests to Render.
+This keeps browser requests on the frontend origin and preserves secure session
+cookies and CSRF checks. The Render Blueprint runs the existing API image and
+uses a separate Neon PostgreSQL database for durable data.
+
+1. Choose the production Vercel project name or custom domain. Use this origin
+   for the backend's `FRONTEND_URL`.
+2. Create a Neon Free project with PostgreSQL 16 in **AWS Asia Pacific
+   (Singapore)** to match `render.yaml`. Copy its direct connection string and
+   use `sslmode=verify-full`. Keep the connection string in your secret store.
+3. From the repository root, initialize the new database with the commands below.
+   The seed creates the first administrator, the default workflow, departments,
+   and sample venues. Use a unique administrator password.
+4. In Render, create a **Blueprint** from the repository. Supply `DATABASE_URL`
+   with the same Neon connection string and `FRONTEND_URL` with the exact Vercel
+   production origin, such as `https://your-project.vercel.app` with no trailing
+   slash. Wait for `/health/ready` to return `{"status":"ready"}`.
+5. Import the repository in Vercel, leave **Root Directory** at the repository
+   root, and set the **Production** variable `VENUE_API_ORIGIN` to the Render
+   HTTPS origin before deploying. `vercel.ts` supplies the build and routing
+   settings. If Vercel assigns a different production URL, update Render's
+   `FRONTEND_URL` to match. Check `/health/ready` on the Vercel domain, open
+   `/login` directly, and verify sign-in and sign-out with the seeded administrator.
+   Set `VENUE_API_ORIGIN` for each Vercel environment you deploy. For preview
+   sign-in, use a dedicated API, database, and stable preview origin.
+
+```bash
+(
+  set -e
+  read -r -s -p 'Neon connection string: ' DATABASE_URL
+  printf '\n'
+  read -r -p 'Vercel production origin: ' FRONTEND_URL
+  read -r -p 'First administrator email: ' SEED_ADMIN_EMAIL
+  read -r -s -p 'First administrator password: ' SEED_ADMIN_PASSWORD
+  printf '\n'
+  : "${DATABASE_URL:?A Neon connection string is required}"
+  : "${FRONTEND_URL:?A Vercel production origin is required}"
+  : "${SEED_ADMIN_EMAIL:?An administrator email is required}"
+  : "${SEED_ADMIN_PASSWORD:?An administrator password is required}"
+  export DATABASE_URL FRONTEND_URL SEED_ADMIN_EMAIL SEED_ADMIN_PASSWORD
+  export NODE_ENV=production COOKIE_SECURE=true
+  pnpm --filter @venue/shared build
+  pnpm db:migrate
+  pnpm db:seed
+)
+```
+
+For future schema changes, run `pnpm db:migrate` with the same `DATABASE_URL`,
+`FRONTEND_URL`, `NODE_ENV`, and `COOKIE_SECURE` before manually deploying the
+corresponding Render revision. Run the seed only when initializing a fresh database.
+
+Vercel Hobby is limited to personal, non-commercial use. Render Free sleeps
+after 15 minutes without traffic and can take about a minute to wake. The in-app
+notification worker pauses while Render sleeps. Use the free setup for a demo or
+pilot and verify plan eligibility before a campus rollout.
+[Vercel Hobby](https://vercel.com/docs/plans/hobby) ·
+[Render Free](https://render.com/docs/free) ·
+[Neon regions](https://neon.com/docs/introduction/regions)
+
+### Docker Compose
+
 See `docs/PRODUCTION_RUNBOOK.md` for TLS, secrets, deployment, migrations,
 backups, restore drills, monitoring, incident response, operating costs and
 scaling limits.
