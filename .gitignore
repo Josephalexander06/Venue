@@ -13,3 +13,5 @@ apps/web/.vite/
 *.tsbuildinfo
 .opencode/skills
 docs/
+DESIGN.md
+STITCH.md
