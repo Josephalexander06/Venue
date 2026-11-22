@@ -245,6 +245,7 @@ export type WorkflowUpdateInput = z.infer<typeof workflowUpdateSchema>;
 export const approvalDecisionInputSchema = z
   .object({
     decision: z.enum(APPROVAL_DECISIONS),
+    expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
     comments: z.string().trim().max(1000).optional().or(z.literal('')),
   })
   .superRefine((value, context) => {

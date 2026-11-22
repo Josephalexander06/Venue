@@ -38,7 +38,7 @@ const approvalRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db })
 
   app.get('/inbox', approverOnly, async (request) => {
     const page = parseInput(approvalInboxQuerySchema, request.query);
-    return listApprovalInbox(db, viewerFrom(request), page);
+    return listApprovalInbox(db, { ...viewerFrom(request), roles: request.auth!.user.roles }, page);
   });
 
   app.get('/:id', { preHandler: app.authenticate }, async (request) => {

@@ -184,6 +184,7 @@ export declare const approvalDecisionInputSchema: z.ZodObject<{
         APPROVED: "APPROVED";
         CHANGES_REQUESTED: "CHANGES_REQUESTED";
     }>;
+    expectedUpdatedAt: z.ZodOptional<z.ZodISODateTime>;
     comments: z.ZodUnion<[z.ZodOptional<z.ZodString>, z.ZodLiteral<"">]>;
 }, z.core.$strip>;
 export type ApprovalDecisionInput = z.infer<typeof approvalDecisionInputSchema>;

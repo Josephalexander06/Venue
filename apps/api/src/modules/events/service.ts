@@ -601,22 +601,16 @@ export async function addEventOrganizer(
     throw new AppError(400, 'USER_NOT_ELIGIBLE', 'The selected user is not active.');
   }
 
-  const [existing] = await db
-    .select({ id: eventOrganizers.id })
-    .from(eventOrganizers)
-    .where(and(eq(eventOrganizers.eventId, eventId), eq(eventOrganizers.userId, input.userId)))
-    .limit(1);
-
-  if (existing) {
-    throw new AppError(409, 'ORGANIZER_ALREADY_EXISTS', 'This user is already an organizer for this event.');
-  }
-
   await db.transaction(async (tx) => {
-    await tx.insert(eventOrganizers).values({
+    const [organizer] = await tx.insert(eventOrganizers).values({
       eventId,
       userId: input.userId,
       assignedById: viewer.userId,
-    });
+    }).onConflictDoNothing({ target: [eventOrganizers.eventId, eventOrganizers.userId] })
+      .returning({ id: eventOrganizers.id });
+    if (!organizer) {
+      throw new AppError(409, 'ORGANIZER_ALREADY_EXISTS', 'This user is already an organizer for this event.');
+    }
 
     await writeAudit(tx, {
       actorId: viewer.userId,

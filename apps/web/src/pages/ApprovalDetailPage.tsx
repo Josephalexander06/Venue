@@ -31,7 +31,12 @@ export function ApprovalDetailPage() {
   const returnTo = isApprover ? '/approvals' : '/my-events';
   const { pushToast } = useToast();
 
-  const [showDecisionDialog, setShowDecisionDialog] = useState(false);
+  const [decisionReview, setDecisionReview] = useState<{
+    requestId: string;
+    updatedAt: string;
+    stepName: string;
+    allowApproval: boolean;
+  } | null>(null);
   const [showAllotDialog, setShowAllotDialog] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
 
@@ -154,7 +159,15 @@ export function ApprovalDetailPage() {
           <>
             <RequestStatusBadge status={request.status} />
             {canDecide && (
-              <Button variant={canApproveAndAllot ? 'secondary' : 'primary'} onClick={() => setShowDecisionDialog(true)}>
+              <Button
+                variant={canApproveAndAllot ? 'secondary' : 'primary'}
+                onClick={() => currentStep && setDecisionReview({
+                  requestId: request.id,
+                  updatedAt: request.updatedAt,
+                  stepName: currentStep.stepName,
+                  allowApproval: !canApproveAndAllot,
+                })}
+              >
                 {canApproveAndAllot ? 'Reject or request changes' : 'Record decision'}
               </Button>
             )}
@@ -280,12 +293,10 @@ export function ApprovalDetailPage() {
         </aside>
       </div>
 
-      {showDecisionDialog && currentStep && (
+      {decisionReview?.requestId === request.id && (
         <ApprovalDecisionDialog
-          requestId={request.id}
-          stepName={currentStep.stepName}
-          allowApproval={!canApproveAndAllot}
-          onClose={() => setShowDecisionDialog(false)}
+          {...decisionReview}
+          onClose={() => setDecisionReview(null)}
           onSuccess={() => void requestQuery.refetch()}
         />
       )}

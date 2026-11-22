@@ -1,5 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { login, loginAsAdmin } from './helpers/auth.js';
+import { expect, test, type APIRequestContext, type APIResponse, type Page } from '@playwright/test';
+import { getAdminCredentials, login, loginAsAdmin } from './helpers/auth.js';
 
 test.setTimeout(180_000);
 
@@ -336,4 +336,134 @@ test('shows the capacity empty state and one cancellation action for a draft', a
   const event = page.locator('.event-card', { hasText: title });
   await expect(event.getByRole('button', { name: /^Cancel/ })).toHaveCount(1);
   await expect(event.getByRole('button', { name: 'Cancel event' })).toBeVisible();
+});
+
+async function checked<T>(response: APIResponse, status = 200): Promise<T> {
+  expect(response.status(), await response.text()).toBe(status);
+  return response.json();
+}
+
+async function apiSession(client: APIRequestContext, credentials: { email: string; password: string }) {
+  const { csrfToken } = await checked<{ csrfToken: string }>(await client.post('/api/v1/auth/login', { data: credentials }));
+  return { 'x-csrf-token': csrfToken };
+}
+
+const roleFixtures = {
+  student: ['STUDENT', 'CS'], faculty: ['FACULTY', 'ME'], hod: ['HOD', 'ME'],
+  bursar: ['BURSAR', 'ADMIN'], principal: ['PRINCIPAL', 'ADMIN'],
+} as const;
+
+test.describe('scoped approval and concurrent booking', () => {
+  const accounts = new Map<keyof typeof roleFixtures, { id: string; email: string; password: string }>();
+  const stamp = Date.now().toString(36);
+  let routedVenueId: string;
+  let competingVenueId: string;
+
+  test.beforeAll(async ({ playwright, baseURL }) => {
+    const client = await playwright.request.newContext({ baseURL });
+    try {
+      const headers = await apiSession(client, getAdminCredentials());
+      const { departments } = await checked<{ departments: Array<{ id: string; code: string }> }>(await client.get('/api/v1/departments'));
+      const departmentIds = new Map(departments.map(({ id, code }) => [code, id]));
+      for (const actor of Object.keys(roleFixtures) as Array<keyof typeof roleFixtures>) {
+        const [role, department] = roleFixtures[actor];
+        const departmentId = departmentIds.get(department)!;
+        const email = `booking.${actor}.${stamp}@college.edu`;
+        const password = 'BrowserBookingQa!123';
+        const { user } = await checked<{ user: { id: string } }>(await client.post('/api/v1/auth/register', {
+          data: { email, password, departmentId, firstName: 'Booking QA', lastName: role },
+        }), 201);
+        await checked(await client.patch(`/api/v1/admin/users/${user.id}/approve`, {
+          headers, data: { roles: [{ role, departmentId: department === 'ADMIN' ? null : departmentId }] },
+        }));
+        accounts.set(actor, { id: user.id, email, password });
+      }
+
+      async function createVenue(label: string, steps: Array<'HOD' | 'BURSAR' | 'PRINCIPAL'>) {
+        const { workflow } = await checked<{ workflow: { id: string } }>(await client.post('/api/v1/admin/workflows', {
+          headers,
+          data: { name: `${label} ${stamp}`, steps: steps.map((role, index) => ({
+            requiredRole: role, stepName: `${role} review`, scopeType: role === 'HOD' ? 'CREATOR_DEPARTMENT' : 'COLLEGE_WIDE',
+            isFinalAllotmentStep: index === steps.length - 1,
+          })) },
+        }), 201);
+        const { venue } = await checked<{ venue: { id: string } }>(await client.post('/api/v1/admin/venues', {
+          headers,
+          data: { code: `QA-${label}-${stamp}`, name: `QA ${label}`, building: 'Engineering', floor: 0, capacity: 45,
+            departmentId: departmentIds.get('ME'), workflowId: workflow.id },
+        }), 201);
+        return venue.id;
+      }
+      [routedVenueId, competingVenueId] = await Promise.all([
+        createVenue('ROUTING', ['HOD', 'BURSAR', 'PRINCIPAL']),
+        createVenue('CONFLICT', ['BURSAR']),
+      ]);
+    } finally {
+      await client.dispose();
+    }
+  });
+
+  async function createBooking(client: APIRequestContext, title: string, venueId: string, actor: 'student' | 'faculty') {
+    const headers = await apiSession(client, accounts.get(actor)!);
+    const { event } = await checked<{ event: { id: string } }>(await client.post('/api/v1/events', {
+      headers, data: { title, expectedAttendance: 30, facultyCoordinatorId: actor === 'student' ? accounts.get('faculty')!.id : undefined },
+    }), 201);
+    const { request } = await checked<{ request: { id: string } }>(await client.post('/api/v1/venue-requests', {
+      headers, data: { eventId: event.id, venueId, startTime: `${futureDate(37)}T10:00:00+05:30`, endTime: `${futureDate(37)}T11:00:00+05:30` },
+    }), 201);
+    return request.id;
+  }
+
+  async function switchRole(page: Page, actor: keyof typeof roleFixtures) {
+    await page.context().clearCookies();
+    const { email, password } = accounts.get(actor)!;
+    await login(page, email, password);
+  }
+
+  test('routes cross-department endorsement through the venue HOD, Bursar and Principal', async ({ page, request }) => {
+    const title = `Cross-department QA ${stamp}`;
+    const requestId = await createBooking(request, title, routedVenueId, 'student');
+    for (const actor of ['faculty', 'hod', 'bursar', 'principal'] as const) {
+      await switchRole(page, actor);
+      await page.goto('/approvals');
+      await page.getByRole('row').filter({ hasText: title }).getByRole('link', { name: 'Review & decide' }).click();
+      if (actor === 'principal') {
+        await page.getByRole('button', { name: 'Approve & Allot Venue' }).click();
+        await page.getByRole('dialog').getByRole('button', { name: 'Approve & Allot Venue' }).click();
+        await expect(page.getByText('Confirmed Venue Reservation')).toBeVisible();
+      } else {
+        await page.getByRole('button', { name: 'Record decision' }).first().click();
+        await page.getByRole('button', { name: 'Approve stage' }).click();
+        await expect(page.getByRole('dialog')).toBeHidden();
+      }
+    }
+    await switchRole(page, 'student');
+    await page.goto(`/my-events/requests/${requestId}`);
+    await expect(page.getByRole('heading', { name: 'Booking confirmed' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Approval history' })).toBeVisible();
+  });
+
+  test('lets only one concurrent browser allotment reserve a competing slot', async ({ page, request }) => {
+    const titles = [`Competing A ${stamp}`, `Competing B ${stamp}`];
+    const ids: string[] = [];
+    for (const title of titles) ids.push(await createBooking(request, title, competingVenueId, 'faculty'));
+    await switchRole(page, 'bursar');
+    const tabs = [page, await page.context().newPage()];
+    const action = 'Approve & Allot Venue';
+    await Promise.all(tabs.map(async (tab, index) => {
+      await tab.goto(`/approvals/${ids[index]}`);
+      await tab.getByRole('button', { name: action }).click();
+      await expect(tab.getByRole('dialog').getByRole('list', { name: 'Competing requests' })).toContainText(titles[1 - index]!);
+    }));
+    const statuses = await Promise.all(tabs.map(async (tab) => {
+      const response = tab.waitForResponse((res) => res.url().endsWith('/approve-and-allot') && res.request().method() === 'POST');
+      await tab.getByRole('dialog').getByRole('button', { name: action }).click();
+      return (await response).status();
+    }));
+    expect([...statuses].sort()).toEqual([200, 409]);
+    await expect(tabs[statuses.indexOf(200)]!.getByText('Confirmed Venue Reservation')).toBeVisible();
+    await switchRole(page, 'faculty');
+    await page.goto(`/my-events/requests/${ids[statuses.indexOf(409)]}`);
+    await expect(page.getByText('The venue was allotted to another event. You can choose a new slot in My events.')).toBeVisible();
+  });
 });

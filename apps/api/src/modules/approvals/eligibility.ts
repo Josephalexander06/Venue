@@ -1,7 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNotNull, or, sql } from 'drizzle-orm';
 import type { RoleName, WorkflowScopeType } from '@venue/shared';
 import type { DbExecutor } from '../../db/index.js';
-import { roles, userRoles } from '../../db/schema.js';
+import { events, roles, userRoles, venues, workflowSteps } from '../../db/schema.js';
 
 export interface ViewerRole {
   role: RoleName;
@@ -43,6 +43,26 @@ export function eligibleForStep(
       (allowAdminOverride && entry.role === 'ADMINISTRATOR') ||
       (entry.role === step.requiredRole &&
         (scope === 'COLLEGE_WIDE' || entry.departmentId === expectedDepartment)),
+  );
+}
+
+// SQL counterpart to eligibleForStep for paginating only the viewer's inbox rows.
+export function eligibleInboxStep(viewerRoles: ViewerRole[]) {
+  const scope = sql`CASE
+    WHEN ${workflowSteps.requiredRole} = 'HOD' AND ${venues.departmentId} IS NOT NULL
+    THEN 'VENUE_DEPARTMENT' ELSE ${workflowSteps.scopeType} END`;
+  return and(
+    or(sql`${scope} <> 'VENUE_DEPARTMENT'`, isNotNull(venues.departmentId)),
+    or(sql`false`, ...viewerRoles.map(({ role, departmentId }) => (
+      role === 'ADMINISTRATOR' ? sql`true` : and(
+        eq(workflowSteps.requiredRole, role),
+        or(
+          sql`${scope} = 'COLLEGE_WIDE'`,
+          departmentId ? and(sql`${scope} = 'CREATOR_DEPARTMENT'`, eq(events.departmentId, departmentId)) : undefined,
+          departmentId ? and(sql`${scope} = 'VENUE_DEPARTMENT'`, eq(venues.departmentId, departmentId)) : undefined,
+        ),
+      )
+    ))),
   );
 }
 

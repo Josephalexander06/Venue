@@ -9,9 +9,9 @@ try {
   // Ignore when .env is absent (e.g. CI environments with injected secrets)
 }
 
-const e2eDatabaseUrl = process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL;
+const e2eDatabaseUrl = process.env.E2E_DATABASE_URL;
 if (!e2eDatabaseUrl) {
-  throw new Error('E2E_DATABASE_URL (or DATABASE_URL) is required for browser tests.');
+  throw new Error('E2E_DATABASE_URL is required for browser tests.');
 }
 if (process.env.NODE_ENV === 'production') {
   throw new Error('Browser tests refuse to run with NODE_ENV=production.');
@@ -19,12 +19,21 @@ if (process.env.NODE_ENV === 'production') {
 
 const databaseHost = decodeURIComponent(new URL(e2eDatabaseUrl).hostname);
 const isLocalDatabase =
-  ['localhost', '127.0.0.1', '::1'].includes(databaseHost) || databaseHost.startsWith('/');
+  ['localhost', '127.0.0.1', '::1', '[::1]'].includes(databaseHost) || databaseHost.startsWith('/');
 if (!isLocalDatabase) {
   throw new Error(
     `Browser tests refuse to write to non-local database host "${databaseHost}". Use E2E_DATABASE_URL.`,
   );
 }
+
+// Default admin credentials for E2E seeding/login if not explicitly configured in environment
+const adminEmail =
+  process.env.SEED_ADMIN_EMAIL || process.env.E2E_ADMIN_EMAIL || 'admin@college.edu';
+const adminPassword =
+  process.env.SEED_ADMIN_PASSWORD || process.env.E2E_ADMIN_PASSWORD || 'ChangeMeNow!2026';
+
+process.env.SEED_ADMIN_EMAIL = adminEmail;
+process.env.SEED_ADMIN_PASSWORD = adminPassword;
 
 // Keep E2E servers on separate ports so a normal `pnpm dev` session can keep
 // running without the browser suite silently hitting the development database.
@@ -61,21 +70,27 @@ export default defineConfig({
       use: { ...devices['Pixel 7'] },
     },
   ],
-  webServer: {
-    command: 'pnpm db:migrate && pnpm db:seed && pnpm dev',
-    url: baseURL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-    stdout: 'pipe',
-    stderr: 'pipe',
-    env: {
-      ...process.env,
-      DATABASE_URL: e2eDatabaseUrl,
-      NODE_ENV: 'development',
-      FRONTEND_URL: baseURL,
-      PORT: String(apiPort),
-      WEB_PORT: String(webPort),
-      API_PROXY_TARGET: `http://localhost:${apiPort}`,
+  webServer: [
+    {
+      command: 'pnpm --filter @venue/shared build && pnpm db:migrate && pnpm db:seed && pnpm --filter @venue/api dev',
+      url: `http://localhost:${apiPort}/health/ready`,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: {
+        ...process.env,
+        DATABASE_URL: e2eDatabaseUrl,
+        NODE_ENV: 'test',
+        FRONTEND_URL: baseURL,
+        PORT: String(apiPort),
+        SEED_ADMIN_EMAIL: adminEmail,
+        SEED_ADMIN_PASSWORD: adminPassword,
+      },
     },
-  },
+    {
+      command: 'pnpm --filter @venue/web dev',
+      url: baseURL,
+      reuseExistingServer: false,
+      env: { WEB_PORT: String(webPort), API_PROXY_TARGET: `http://localhost:${apiPort}` },
+    },
+  ],
 });

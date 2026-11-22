@@ -7,6 +7,7 @@ import { Alert, Button, Dialog, TextareaField, useToast } from '../ui';
 
 interface ApprovalDecisionDialogProps {
   requestId: string;
+  updatedAt: string;
   stepName: string;
   allowApproval: boolean;
   onClose: () => void;
@@ -15,6 +16,7 @@ interface ApprovalDecisionDialogProps {
 
 export function ApprovalDecisionDialog({
   requestId,
+  updatedAt,
   stepName,
   allowApproval,
   onClose,
@@ -29,8 +31,14 @@ export function ApprovalDecisionDialog({
     mutationFn: () =>
       api.decideApproval(requestId, {
         decision,
+        expectedUpdatedAt: updatedAt,
         comments: comments.trim() || undefined,
       }),
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === 'APPROVAL_STATE_CHANGED') {
+        void queryClient.invalidateQueries({ queryKey: ['approval', requestId] });
+      }
+    },
     onSuccess: async (data) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['approvals'] }),

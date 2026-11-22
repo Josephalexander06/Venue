@@ -1,7 +1,7 @@
-import { and, asc, eq, gt, inArray, isNotNull, or } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNotNull, ne, notExists, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import type {
   ApprovalDecisionInput,
-  RequestStatus,
   RoleName,
   WorkflowScopeType,
 } from '@venue/shared';
@@ -12,6 +12,7 @@ import {
   departments,
   eventOrganizers,
   events,
+  venueAllotments,
   venueRequests,
   venues,
   workflowSteps,
@@ -22,7 +23,6 @@ import { writeAudit } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { notifyRequestParticipants } from '../../lib/notifications.js';
 import {
-  findRequestConflicts,
   getRequestView,
   type RequestDetailView,
 } from '../requests/service.js';
@@ -30,10 +30,12 @@ import {
   mapRequestRow,
   requestSelection,
   type EventSummary,
+  type RequestRow,
 } from '../requests/view.js';
 import {
   effectiveStepScope,
   eligibleForStep,
+  eligibleInboxStep,
   loadViewerRoles,
   type ViewerRole,
 } from './eligibility.js';
@@ -51,29 +53,7 @@ interface RequestContext {
 const DECIDABLE_STATUSES = ['SUBMITTED', 'IN_REVIEW'] as const;
 const INBOX_STATUSES = ['SUBMITTED', 'IN_REVIEW', 'APPROVED_PENDING_ALLOTMENT'] as const;
 
-interface InboxRow {
-  id: string;
-  eventId: string;
-  submittedById: string;
-  requiresFacultyEndorsement: boolean;
-  facultyEndorserId: string | null;
-  facultyEndorsedAt: Date | null;
-  workflowId: string;
-  venueId: string;
-  startTime: Date;
-  endTime: Date;
-  setupBufferMins: number;
-  teardownBufferMins: number;
-  status: RequestStatus;
-  currentStepOrder: number;
-  rejectionReason: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  venueCode: string;
-  venueName: string;
-  venueBuilding: string;
-  venueFloor: number;
-  venueCapacity: number;
+interface InboxRow extends RequestRow {
   creatorId: string;
   facultyCoordinatorId: string | null;
   title: string;
@@ -85,12 +65,6 @@ interface InboxRow {
   departmentId: string;
   departmentCode: string;
   departmentName: string;
-  venueDepartmentId: string | null;
-  stepId: string;
-  stepName: string;
-  requiredRole: RoleName;
-  scopeType: WorkflowScopeType;
-  isFinalAllotmentStep: boolean;
 }
 
 export interface ApprovalInboxItem {
@@ -128,82 +102,33 @@ function eventSummary(row: InboxRow): EventSummary {
 
 export async function listApprovalInbox(
   db: Database,
-  viewer: Viewer,
+  viewer: Viewer & { roles: ViewerRole[] },
   page: { limit: number; offset: number },
 ) {
-  const viewerRoles = await loadViewerRoles(db, viewer.userId);
-
-  // 1. Query workflow step requests (Stage 1..N)
-  const workflowRows = await db
-    .select({
-      ...requestSelection,
-      creatorId: events.creatorId,
-      facultyCoordinatorId: events.facultyCoordinatorId,
-      title: events.title,
-      description: events.description,
-      expectedAttendance: events.expectedAttendance,
-      eventStatus: events.status,
-      eventCreatedAt: events.createdAt,
-      eventUpdatedAt: events.updatedAt,
-      departmentId: departments.id,
-      departmentCode: departments.code,
-      departmentName: departments.name,
-      venueDepartmentId: venues.departmentId,
-      stepId: workflowSteps.id,
-      stepName: workflowSteps.stepName,
-      requiredRole: workflowSteps.requiredRole,
-      scopeType: workflowSteps.scopeType,
-      isFinalAllotmentStep: workflowSteps.isFinalAllotmentStep,
-    })
-    .from(venueRequests)
-    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-    .innerJoin(events, eq(events.id, venueRequests.eventId))
-    .innerJoin(departments, eq(departments.id, events.departmentId))
-    .leftJoin(
-      approvalInstances,
-      and(
-        eq(approvalInstances.venueRequestId, venueRequests.id),
-        eq(approvalInstances.workflowId, venueRequests.workflowId),
-        eq(approvalInstances.isActive, true),
-        eq(approvalInstances.currentStepOrder, venueRequests.currentStepOrder),
-      ),
-    )
-    .innerJoin(
-      workflowSteps,
-      and(
-        eq(workflowSteps.workflowId, venueRequests.workflowId),
-        eq(workflowSteps.stepOrder, venueRequests.currentStepOrder),
-      ),
-    )
-    .where(
-      and(
-        inArray(venueRequests.status, [...INBOX_STATUSES]),
-        // Preliminary approval closes the round. Final allotment remains actionable.
-        or(isNotNull(approvalInstances.id), eq(venueRequests.status, 'APPROVED_PENDING_ALLOTMENT')),
-        gt(venueRequests.currentStepOrder, 0),
-      ),
-    );
-
-  const orgRows = await db
-    .select({ eventId: eventOrganizers.eventId })
+  const pending = alias(venueRequests, 'pending');
+  // The inbox only needs counts. Compare the indexed ranges without loading conflicting events.
+  const confirmedCount = db.select({ count: sql<number>`count(*)::int` })
+    .from(venueAllotments)
+    .where(and(
+      eq(venueAllotments.venueId, venueRequests.venueId),
+      ne(venueAllotments.venueRequestId, venueRequests.id),
+      eq(venueAllotments.status, 'ACTIVE'),
+      sql`${venueAllotments.reservedRange} && ${venueRequests.effectiveRange}`,
+    ));
+  const pendingCount = db.select({ count: sql<number>`count(*)::int` })
+    .from(pending)
+    .where(and(
+      eq(pending.venueId, venueRequests.venueId),
+      ne(pending.id, venueRequests.id),
+      inArray(pending.status, INBOX_STATUSES),
+      sql`${pending.effectiveRange} && ${venueRequests.effectiveRange}`,
+    ));
+  const organizer = db.select({ id: eventOrganizers.id })
     .from(eventOrganizers)
-    .where(eq(eventOrganizers.userId, viewer.userId));
-  const orgEventIds = new Set(orgRows.map((r) => r.eventId));
+    .where(and(eq(eventOrganizers.eventId, events.id), eq(eventOrganizers.userId, viewer.userId)));
+  const awaitingAllotment = eq(venueRequests.status, 'APPROVED_PENDING_ALLOTMENT');
 
-  const eligibleWorkflowRows: InboxRow[] = workflowRows.filter(
-    (row) =>
-      row.creatorId !== viewer.userId &&
-      row.submittedById !== viewer.userId &&
-      row.facultyCoordinatorId !== viewer.userId &&
-      !orgEventIds.has(row.eventId) &&
-      (
-        (viewer.isAdmin && row.status === 'APPROVED_PENDING_ALLOTMENT') ||
-        eligibleForStep(viewerRoles, row, row.departmentId, row.venueDepartmentId)
-      ),
-  );
-
-  // 2. Query Step 0 requests (Faculty coordinator endorsement)
-  const step0Rows = await db
+  const query = db
     .select({
       ...requestSelection,
       creatorId: events.creatorId,
@@ -218,84 +143,77 @@ export async function listApprovalInbox(
       departmentCode: departments.code,
       departmentName: departments.name,
       venueDepartmentId: venues.departmentId,
+      step: {
+        id: workflowSteps.id,
+        stepName: workflowSteps.stepName,
+        requiredRole: workflowSteps.requiredRole,
+        scopeType: workflowSteps.scopeType,
+        isFinalAllotmentStep: workflowSteps.isFinalAllotmentStep,
+      },
+      confirmedCount: sql<number>`(${confirmedCount})`,
+      pendingCount: sql<number>`(${pendingCount})`,
+      total: sql<number>`count(*) over ()::int`,
     })
     .from(venueRequests)
     .innerJoin(venues, eq(venues.id, venueRequests.venueId))
     .innerJoin(events, eq(events.id, venueRequests.eventId))
     .innerJoin(departments, eq(departments.id, events.departmentId))
-    .innerJoin(
-      approvalInstances,
-      and(
-        eq(approvalInstances.venueRequestId, venueRequests.id),
-        eq(approvalInstances.workflowId, venueRequests.workflowId),
-        eq(approvalInstances.isActive, true),
-        eq(approvalInstances.currentStepOrder, 0),
+    .leftJoin(approvalInstances, and(
+      eq(approvalInstances.venueRequestId, venueRequests.id),
+      eq(approvalInstances.workflowId, venueRequests.workflowId),
+      eq(approvalInstances.isActive, true),
+      eq(approvalInstances.currentStepOrder, venueRequests.currentStepOrder),
+    ))
+    .leftJoin(workflowSteps, and(
+      eq(workflowSteps.workflowId, venueRequests.workflowId),
+      eq(workflowSteps.stepOrder, venueRequests.currentStepOrder),
+    ))
+    .where(and(
+      inArray(venueRequests.status, INBOX_STATUSES),
+      ne(events.creatorId, viewer.userId),
+      ne(venueRequests.submittedById, viewer.userId),
+      or(
+        and(
+          eq(venueRequests.currentStepOrder, 0),
+          eq(venueRequests.requiresFacultyEndorsement, true),
+          ne(venueRequests.status, 'APPROVED_PENDING_ALLOTMENT'),
+          isNotNull(approvalInstances.id),
+          viewer.isAdmin ? undefined : eq(events.facultyCoordinatorId, viewer.userId),
+        ),
+        and(
+          gt(venueRequests.currentStepOrder, 0),
+          isNotNull(workflowSteps.id),
+          or(isNotNull(approvalInstances.id), awaitingAllotment),
+          sql`${events.facultyCoordinatorId} IS DISTINCT FROM ${viewer.userId}`,
+          notExists(organizer),
+          or(viewer.isAdmin ? awaitingAllotment : undefined, eligibleInboxStep(viewer.roles)),
+        ),
       ),
-    )
-    .where(
-      and(
-        eq(venueRequests.currentStepOrder, 0),
-        eq(venueRequests.requiresFacultyEndorsement, true),
-        inArray(venueRequests.status, ['SUBMITTED', 'IN_REVIEW']),
-      ),
-    );
+    ))
+    .orderBy(asc(venueRequests.createdAt), asc(venueRequests.id));
 
-  const eligibleStep0Rows: InboxRow[] = step0Rows
-    .filter((row) => {
-      if (row.creatorId === viewer.userId || row.submittedById === viewer.userId) {
-        return false;
-      }
-      return viewer.isAdmin || row.facultyCoordinatorId === viewer.userId;
-    })
-    .map((row) => ({
-      ...row,
-      stepId: 'faculty-endorsement',
+  const rows = await query.limit(page.limit).offset(page.offset);
+  // A page past the end has no window count. Read the count from the first row in that case.
+  const total = rows[0]?.total ?? (page.offset ? (await query.limit(1).offset(0))[0]?.total : 0) ?? 0;
+  const items = rows.map((row) => ({
+    request: mapRequestRow(row),
+    event: eventSummary(row),
+    step: row.step ? {
+      ...row.step,
+      stepOrder: row.currentStepOrder,
+      scopeType: effectiveStepScope(row.step, row.venueDepartmentId),
+    } : {
+      id: 'faculty-endorsement',
+      stepOrder: 0,
       stepName: 'Faculty Coordinator Endorsement',
-      requiredRole: 'FACULTY' as RoleName,
-      scopeType: 'CREATOR_DEPARTMENT' as WorkflowScopeType,
+      requiredRole: 'FACULTY',
+      scopeType: 'CREATOR_DEPARTMENT',
       isFinalAllotmentStep: false,
-    }));
+    },
+    conflicts: { confirmedCount: row.confirmedCount, pendingCount: row.pendingCount },
+  } satisfies ApprovalInboxItem));
 
-  const combined = [...eligibleStep0Rows, ...eligibleWorkflowRows].sort(
-    (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
-  );
-
-  const pageRows = combined.slice(page.offset, page.offset + page.limit);
-  const items = await Promise.all(
-    pageRows.map(async (row) => {
-      const conflicts = await findRequestConflicts(db, {
-        venueId: row.venueId,
-        startTime: row.startTime,
-        endTime: row.endTime,
-        setupBufferMins: row.setupBufferMins,
-        teardownBufferMins: row.teardownBufferMins,
-        excludeRequestId: row.id,
-      });
-      return {
-        request: mapRequestRow(row),
-        event: eventSummary(row),
-        step: {
-          id: row.stepId,
-          stepOrder: row.currentStepOrder,
-          stepName: row.stepName,
-          requiredRole: row.requiredRole,
-          scopeType: effectiveStepScope(row, row.venueDepartmentId),
-          isFinalAllotmentStep: row.isFinalAllotmentStep,
-        },
-        conflicts: {
-          confirmedCount: conflicts.confirmed.length,
-          pendingCount: conflicts.pending.length,
-        },
-      } satisfies ApprovalInboxItem;
-    }),
-  );
-
-  return {
-    items,
-    total: combined.length,
-    limit: page.limit,
-    offset: page.offset,
-  };
+  return { items, total, ...page };
 }
 
 export async function getApprovalDetail(
@@ -369,6 +287,12 @@ export function approveAndAllot(
     recordDecision(tx, requestId, viewer, { decision: 'APPROVED', comments: input.remarks }, context));
 }
 
+function assertCurrentReview(updatedAt: Date, expectedUpdatedAt?: string) {
+  if (expectedUpdatedAt && updatedAt.getTime() !== Date.parse(expectedUpdatedAt)) {
+    throw new AppError(409, 'APPROVAL_STATE_CHANGED', 'This request changed. Review the updated details before deciding.');
+  }
+}
+
 async function recordDecision(
   tx: DbExecutor,
   requestId: string,
@@ -418,8 +342,9 @@ async function recordDecision(
     );
   }
 
-  const now = new Date();
+  const now = new Date(Math.max(Date.now(), request.updatedAt.getTime() + 1));
   let nextStatus = request.status;
+  let nextStepOrder = request.currentStepOrder;
 
   if (request.currentStepOrder === 0) {
     // Step 0: Faculty Coordinator Endorsement
@@ -430,6 +355,8 @@ async function recordDecision(
         'You are not the designated faculty coordinator for this event.',
       );
     }
+
+    assertCurrentReview(request.updatedAt, input.expectedUpdatedAt);
 
     if (input.decision !== 'CHANGES_REQUESTED') {
       const [existingDecision] = await tx
@@ -510,6 +437,7 @@ async function recordDecision(
           })
           .where(eq(venueRequests.id, requestId));
         nextStatus = 'IN_REVIEW';
+        nextStepOrder = firstWorkflowStep.stepOrder;
       } else {
         await tx
           .update(approvalInstances)
@@ -568,6 +496,8 @@ async function recordDecision(
         'Event organizers and coordinators cannot approve or reject their own event.',
       );
     }
+
+    assertCurrentReview(request.updatedAt, input.expectedUpdatedAt);
 
     if (input.decision !== 'CHANGES_REQUESTED') {
       const [existingDecision] = await tx
@@ -649,6 +579,7 @@ async function recordDecision(
           })
           .where(eq(venueRequests.id, requestId));
         nextStatus = 'IN_REVIEW';
+        nextStepOrder = nextStep.stepOrder;
       } else {
         await tx
           .update(approvalInstances)
@@ -689,7 +620,7 @@ async function recordDecision(
     },
     newState: {
       status: nextStatus,
-      currentStepOrder: request.currentStepOrder,
+      currentStepOrder: nextStepOrder,
       decision: input.decision,
     },
     ipAddress: context.ipAddress,

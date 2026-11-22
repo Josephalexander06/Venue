@@ -197,6 +197,7 @@ export const workflowUpdateSchema = z
 export const approvalDecisionInputSchema = z
     .object({
     decision: z.enum(APPROVAL_DECISIONS),
+    expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
     comments: z.string().trim().max(1000).optional().or(z.literal('')),
 })
     .superRefine((value, context) => {

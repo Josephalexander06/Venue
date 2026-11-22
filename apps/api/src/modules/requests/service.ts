@@ -523,7 +523,7 @@ export async function getRequestView(
   const canCancelAllotment = Boolean(
     allotment &&
       allotment.status === 'ACTIVE' &&
-      (ownerOrAdmin || (allotmentRow && allotmentRow.allottedById === viewer.userId)),
+      (viewer.isAdmin || row.creatorId === viewer.userId || allotmentRow?.allottedById === viewer.userId),
   );
 
   return {
@@ -875,7 +875,7 @@ export async function updateVenueRequest(
         .where(eq(events.id, row.eventId));
     }
 
-    const now = new Date();
+    const now = new Date(Math.max(Date.now(), row.updatedAt.getTime() + 1));
     if (critical) {
       const targetWorkflow = await loadBookingWorkflow(tx, venue);
       const restartStepOrder = row.requiresFacultyEndorsement ? 0 : targetWorkflow.firstStepOrder;

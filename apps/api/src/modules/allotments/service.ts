@@ -450,14 +450,6 @@ export async function cancelAllotment(
       throw new AppError(404, 'ALLOTMENT_NOT_FOUND', 'Venue allotment record not found.');
     }
 
-    if (allotment.status !== 'ACTIVE') {
-      throw new AppError(
-        409,
-        'ALLOTMENT_NOT_ACTIVE',
-        'This allotment is already cancelled or released.',
-      );
-    }
-
     // 2. Authorization: Event creator, allotting approver, or administrator
     const isOwner = allotment.creatorId === viewer.userId;
     const isAllotter = allotment.allottedBy === viewer.userId;
@@ -466,6 +458,14 @@ export async function cancelAllotment(
         403,
         'ALLOTMENT_CANCEL_FORBIDDEN',
         'You are not authorized to cancel this confirmed booking.',
+      );
+    }
+
+    if (allotment.status !== 'ACTIVE') {
+      throw new AppError(
+        409,
+        'ALLOTMENT_NOT_ACTIVE',
+        'This allotment is already cancelled or released.',
       );
     }
 
