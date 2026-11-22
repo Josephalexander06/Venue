@@ -33,6 +33,8 @@ jobs:
       COOKIE_SAME_SITE: lax
       COOKIE_SECURE: "false"
       SESSION_TTL_HOURS: "24"
+      SEED_ADMIN_EMAIL: admin@college.edu
+      SEED_ADMIN_PASSWORD: ChangeMeNow!2026
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -53,6 +55,8 @@ jobs:
         run: pnpm test:e2e
         env:
           E2E_DATABASE_URL: postgres://venue:venue@localhost:5432/venue_test
+          SEED_ADMIN_EMAIL: admin@college.edu
+          SEED_ADMIN_PASSWORD: ChangeMeNow!2026
 
   docker-config:
     runs-on: ubuntu-latest

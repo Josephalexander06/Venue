@@ -5,8 +5,10 @@ import { expect, type Page } from '@playwright/test';
  * Evaluates E2E_ADMIN_* first, falling back to SEED_ADMIN_* from .env.
  */
 export function getAdminCredentials(): { email: string; password: string } {
-  const email = process.env.E2E_ADMIN_EMAIL || process.env.SEED_ADMIN_EMAIL;
-  const password = process.env.E2E_ADMIN_PASSWORD || process.env.SEED_ADMIN_PASSWORD;
+  const email =
+    process.env.E2E_ADMIN_EMAIL || process.env.SEED_ADMIN_EMAIL || 'admin@college.edu';
+  const password =
+    process.env.E2E_ADMIN_PASSWORD || process.env.SEED_ADMIN_PASSWORD || 'ChangeMeNow!2026';
 
   if (!email || !password) {
     throw new Error(
