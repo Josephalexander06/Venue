@@ -180,8 +180,8 @@ uses a separate Neon PostgreSQL database for durable data.
 5. Import **web (Vite)** as a standalone Vercel project with **Root Directory**
    set to `apps/web`. Enable **Include source files outside of the Root Directory
    in the Build Step** so Vercel can build `packages/shared`. Set the
-   **Production** variable `VENUE_API_ORIGIN` to the Render HTTPS origin before
-   deploying. `apps/web/vercel.ts` supplies the build and routing settings. If
+   **Production** variable `VENUE_API_ORIGIN` to the Render HTTPS origin without
+   a trailing slash. `apps/web/vercel.json` supplies the build and routing settings. If
    Vercel assigns a different production URL, update Render's `FRONTEND_URL` to
    match. Check `/health/ready` on the Vercel domain, open
    `/login` directly, and verify sign-in and sign-out with the seeded administrator.
