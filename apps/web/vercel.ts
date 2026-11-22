@@ -12,7 +12,7 @@ if (api.protocol !== 'https:' || api.username || api.password || api.pathname !=
 export const config = {
   framework: 'vite',
   buildCommand: 'pnpm --filter @venue/shared build && pnpm --filter @venue/web build',
-  outputDirectory: 'apps/web/dist',
+  outputDirectory: 'dist',
   rewrites: [
     { source: '/api/:path*', destination: `${api.origin}/api/:path*` },
     { source: '/health/:path*', destination: `${api.origin}/health/:path*` },
