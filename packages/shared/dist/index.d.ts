@@ -17,8 +17,9 @@ export declare const registrationSchema: z.ZodObject<{
     firstName: z.ZodString;
     lastName: z.ZodString;
     phone: z.ZodUnion<[z.ZodOptional<z.ZodString>, z.ZodLiteral<"">]>;
-    departmentId: z.ZodString;
+    departmentId: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
+export declare const UNASSIGNED_DEPARTMENT_CODE = "UNASSIGNED";
 export type RegistrationInput = z.infer<typeof registrationSchema>;
 export declare const roleAssignmentSchema: z.ZodObject<{
     role: z.ZodEnum<{
@@ -32,6 +33,7 @@ export declare const roleAssignmentSchema: z.ZodObject<{
     departmentId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
 }, z.core.$strip>;
 export declare const approveUserSchema: z.ZodObject<{
+    departmentId: z.ZodOptional<z.ZodString>;
     roles: z.ZodArray<z.ZodObject<{
         role: z.ZodEnum<{
             STUDENT: "STUDENT";
@@ -69,6 +71,9 @@ export declare const suspendUserSchema: z.ZodObject<{
 export type SuspendUserInput = z.infer<typeof suspendUserSchema>;
 export declare const MAX_FACILITY_LENGTH = 40;
 export declare const MAX_FACILITIES = 20;
+export declare const VENUE_STATUSES: readonly ["ACTIVE", "MAINTENANCE", "DECOMMISSIONED"];
+export type VenueStatus = (typeof VENUE_STATUSES)[number];
+export declare const VENUE_STATUS_LABELS: Record<VenueStatus, string>;
 export declare const venueInputSchema: z.ZodObject<{
     code: z.ZodString;
     name: z.ZodString;
@@ -79,6 +84,11 @@ export declare const venueInputSchema: z.ZodObject<{
     setupBufferMins: z.ZodDefault<z.ZodCoercedNumber<unknown>>;
     teardownBufferMins: z.ZodDefault<z.ZodCoercedNumber<unknown>>;
     isActive: z.ZodDefault<z.ZodBoolean>;
+    status: z.ZodOptional<z.ZodEnum<{
+        ACTIVE: "ACTIVE";
+        MAINTENANCE: "MAINTENANCE";
+        DECOMMISSIONED: "DECOMMISSIONED";
+    }>>;
     departmentId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     workflowId: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
@@ -93,6 +103,11 @@ export declare const venueUpdateSchema: z.ZodObject<{
     setupBufferMins: z.ZodOptional<z.ZodDefault<z.ZodCoercedNumber<unknown>>>;
     teardownBufferMins: z.ZodOptional<z.ZodDefault<z.ZodCoercedNumber<unknown>>>;
     isActive: z.ZodOptional<z.ZodDefault<z.ZodBoolean>>;
+    status: z.ZodOptional<z.ZodOptional<z.ZodEnum<{
+        ACTIVE: "ACTIVE";
+        MAINTENANCE: "MAINTENANCE";
+        DECOMMISSIONED: "DECOMMISSIONED";
+    }>>>;
     departmentId: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
     workflowId: z.ZodOptional<z.ZodOptional<z.ZodString>>;
 }, z.core.$strip>;
@@ -105,6 +120,11 @@ export declare const venueListQuerySchema: z.ZodObject<{
     active: z.ZodOptional<z.ZodEnum<{
         true: "true";
         false: "false";
+    }>>;
+    status: z.ZodOptional<z.ZodEnum<{
+        ACTIVE: "ACTIVE";
+        MAINTENANCE: "MAINTENANCE";
+        DECOMMISSIONED: "DECOMMISSIONED";
     }>>;
     limit: z.ZodDefault<z.ZodCoercedNumber<unknown>>;
     offset: z.ZodDefault<z.ZodCoercedNumber<unknown>>;
@@ -189,6 +209,11 @@ export declare const approvalDecisionInputSchema: z.ZodObject<{
 }, z.core.$strip>;
 export type ApprovalDecisionInput = z.infer<typeof approvalDecisionInputSchema>;
 export declare const approvalInboxQuerySchema: z.ZodObject<{
+    view: z.ZodOptional<z.ZodEnum<{
+        pending: "pending";
+        decided: "decided";
+        all: "all";
+    }>>;
     limit: z.ZodDefault<z.ZodCoercedNumber<unknown>>;
     offset: z.ZodDefault<z.ZodCoercedNumber<unknown>>;
 }, z.core.$strip>;
@@ -273,8 +298,16 @@ export declare const allotmentInboxQuerySchema: z.ZodObject<{
     offset: z.ZodDefault<z.ZodCoercedNumber<unknown>>;
 }, z.core.$strip>;
 export type AllotmentInboxQuery = z.infer<typeof allotmentInboxQuerySchema>;
+export declare const DEFAULT_BOOKING_TITLE = "Room reservation";
 export declare const venueRequestInputSchema: z.ZodObject<{
-    eventId: z.ZodString;
+    idempotencyKey: z.ZodOptional<z.ZodString>;
+    eventId: z.ZodOptional<z.ZodString>;
+    event: z.ZodOptional<z.ZodObject<{
+        description: z.ZodUnion<[z.ZodOptional<z.ZodString>, z.ZodLiteral<"">]>;
+        title: z.ZodOptional<z.ZodString>;
+        expectedAttendance: z.ZodCoercedNumber<unknown>;
+        facultyCoordinatorId: z.ZodNullable<z.ZodOptional<z.ZodString>>;
+    }, z.core.$strip>>;
     venueId: z.ZodString;
     startTime: z.ZodISODateTime;
     endTime: z.ZodISODateTime;

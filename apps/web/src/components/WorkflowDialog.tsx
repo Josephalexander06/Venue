@@ -238,7 +238,7 @@ export function WorkflowDialog({ workflow, onClose }: WorkflowDialogProps) {
     <Dialog
       open
       onClose={onClose}
-      title={editing ? 'Edit approval workflow' : 'Create approval workflow'}
+      title={editing ? 'Edit approval steps' : 'Create approval workflow'}
       description="Define the sequential stages, roles and departmental scoping for venue booking requests."
       footer={
         <>
@@ -363,7 +363,7 @@ export function WorkflowDialog({ workflow, onClose }: WorkflowDialogProps) {
 
                     <div className="form-row">
                       <SelectField
-                        label="Department scoping"
+                        label="Approver’s department"
                         name={`step-${index}-scope`}
                         value={step.scopeType}
                         onChange={(e) =>

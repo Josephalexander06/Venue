@@ -11,7 +11,6 @@ import {
 import type { DepartmentWithStats } from '../lib/api';
 import { api, ApiError } from '../lib/api';
 import { usePageTitle } from '../auth';
-import { formatDate } from '../lib/format';
 import {
   Alert,
   Button,
@@ -140,81 +139,23 @@ export function AdminDepartmentsPage() {
             }
           />
         ) : (
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Department</th>
-                  <th>Members</th>
-                  <th>Venues</th>
-                  <th>Events</th>
-                  <th>Created</th>
-                  <th aria-label="Actions" />
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((dept) => {
-                  const hasUsage =
-                    dept.usersCount > 0 || dept.venuesCount > 0 || dept.eventsCount > 0;
-                  return (
-                    <tr key={dept.id}>
-                      <td data-label="Department">
-                        <span className="table-venue-cell">
-                          <strong>{dept.name}</strong>
-                          <span className="department-tag">{dept.code}</span>
-                        </span>
-                      </td>
-                      <td data-label="Members">
-                        <span className="table-muted">
-                          {dept.usersCount} {dept.usersCount === 1 ? 'member' : 'members'}
-                        </span>
-                      </td>
-                      <td data-label="Venues">
-                        <span className="table-muted">
-                          {dept.venuesCount} {dept.venuesCount === 1 ? 'venue' : 'venues'}
-                        </span>
-                      </td>
-                      <td data-label="Events">
-                        <span className="table-muted">
-                          {dept.eventsCount} {dept.eventsCount === 1 ? 'event' : 'events'}
-                        </span>
-                      </td>
-                      <td data-label="Created">
-                        <span className="table-muted">{formatDate(dept.createdAt)}</span>
-                      </td>
-                      <td className="table-actions">
-                        <div className="table-action-group">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            aria-label={`Edit ${dept.name}`}
-                            onClick={() => setDialogTarget({ department: dept })}
-                          >
-                            <NotePencil size={15} /> Edit
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-danger"
-                            aria-label={`Delete ${dept.name}`}
-                            disabled={hasUsage}
-                            title={
-                              hasUsage
-                                ? 'Cannot delete department with assigned users, venues, or events'
-                                : undefined
-                            }
-                            onClick={() => setDeleteTarget(dept)}
-                          >
-                            <Trash size={15} />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <ul className="admin-list">
+            {filtered.map((dept) => {
+              const inUse = Boolean(dept.usersCount || dept.venuesCount || dept.eventsCount);
+              return <li className="product-panel admin-list-item" key={dept.id}>
+                <div><strong>{dept.name} <span className="department-tag">{dept.code}</span></strong>
+                  <p>{dept.usersCount} members · {dept.venuesCount} venues · {dept.eventsCount} events</p></div>
+                <div className="product-actions">
+                  <Button variant="secondary" size="sm" aria-label={`Edit ${dept.name}`} onClick={() => setDialogTarget({ department: dept })}>
+                    <NotePencil size={15} /> Edit
+                  </Button>
+                  <Button variant="danger-ghost" size="sm" aria-label={`Delete ${dept.name}`} disabled={inUse} onClick={() => setDeleteTarget(dept)}>
+                    <Trash size={15} /> Delete
+                  </Button>
+                </div>
+              </li>;
+            })}
+          </ul>
         )}
       </div>
 

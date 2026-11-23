@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { DEPARTMENT_SCOPED_ROLES, ROLE_NAMES, type RoleName } from '@venue/shared';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { DEPARTMENT_SCOPED_ROLES, ROLE_NAMES, UNASSIGNED_DEPARTMENT_CODE, type RoleName } from '@venue/shared';
 import {
   ArrowRight,
   CheckCircle,
@@ -16,6 +16,7 @@ import {
   Button,
   Dialog,
   RoleOption,
+  SelectField,
   TextareaField,
   useToast,
 } from './ui';
@@ -26,17 +27,22 @@ type Tab = 'approve' | 'reject';
 export function UserReviewDialog({
   user,
   mode,
+  initialTab = 'approve',
   onClose,
 }: {
   user: UserView;
   mode: Mode;
+  initialTab?: Tab;
   onClose: () => void;
 }) {
   const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
   const panelId = useId();
-  const [tab, setTab] = useState<Tab>('approve');
+  const [tab, setTab] = useState<Tab>(initialTab);
+  const [departmentId, setDepartmentId] = useState(user.department.code === UNASSIGNED_DEPARTMENT_CODE ? '' : user.department.id);
+  const departments = useQuery({ queryKey: ['departments'], queryFn: api.departments, enabled: mode === 'review' });
+  const departmentCode = departments.data?.departments.find((item) => item.id === departmentId)?.code ?? user.department.code;
   const [selected, setSelected] = useState<Set<RoleName>>(() => {
     if (mode === 'roles') return new Set(user.roles.map((entry) => entry.role));
     return new Set<RoleName>(['STUDENT']);
@@ -51,7 +57,7 @@ export function UserReviewDialog({
   function assignments(): RoleAssignment[] {
     return roleList.map((role) => ({
       role,
-      departmentId: DEPARTMENT_SCOPED_ROLES.includes(role) ? user.department.id : null,
+      departmentId: DEPARTMENT_SCOPED_ROLES.includes(role) ? departmentId : null,
     }));
   }
 
@@ -64,7 +70,7 @@ export function UserReviewDialog({
   const approve = useMutation({
     mutationFn: () =>
       mode === 'review'
-        ? api.approveUser(user.id, assignments())
+        ? api.approveUser(user.id, assignments(), departmentId)
         : api.updateUserRoles(user.id, assignments()),
     onSuccess: () => {
       refreshCaches();
@@ -108,6 +114,10 @@ export function UserReviewDialog({
   }
 
   function handleApprove() {
+    if (mode === 'review' && !departmentId) {
+      setSelectedError('Choose a department before approving this account.');
+      return;
+    }
     if (selected.size === 0) {
       setSelectedError('Choose at least one role before approving this account.');
       return;
@@ -181,13 +191,14 @@ export function UserReviewDialog({
           id={mode === 'review' ? `${panelId}-approve-panel` : undefined}
           aria-labelledby={mode === 'review' ? `${panelId}-approve-tab` : undefined}
         >
-          <div className="form-section-head">
-            <h3>Assign roles</h3>
-            <p>
-              Department-scoped roles apply to {user.department.code}. College-wide roles apply
-              across the institution.
-            </p>
-          </div>
+          {mode === 'review' && <SelectField label="Department" name="review-department" value={departmentId}
+            onChange={(event) => { setDepartmentId(event.target.value); setSelectedError(undefined); }} required>
+            <option value="">Select a department</option>
+            {departments.data?.departments.filter((item) => item.code !== UNASSIGNED_DEPARTMENT_CODE).map((item) => (
+              <option value={item.id} key={item.id}>{item.name}</option>
+            ))}
+          </SelectField>}
+          <div className="form-section-head"><h3>Assign roles</h3></div>
 
           {isSelf && (
             <Alert tone="info">
@@ -202,7 +213,7 @@ export function UserReviewDialog({
           )}
 
           {selectedError && (
-            <Alert tone="danger" title="Roles required">
+            <Alert tone="danger" title="Account details required">
               {selectedError}
             </Alert>
           )}
@@ -213,7 +224,7 @@ export function UserReviewDialog({
                 key={role}
                 role={role}
                 checked={selected.has(role)}
-                departmentCode={user.department.code}
+                departmentCode={departmentCode}
                 disabled={isSelf && role === 'ADMINISTRATOR'}
                 onChange={(checked) => toggleRole(role, checked)}
               />

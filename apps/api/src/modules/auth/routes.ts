@@ -7,7 +7,6 @@ import { CSRF_COOKIE, SESSION_COOKIE } from '../../lib/tokens.js';
 import { z } from 'zod';
 import {
   authenticateCredentials,
-  authenticateOrRegisterGoogle,
   createSession,
   registerUser,
   revokeSession,
@@ -35,6 +34,12 @@ const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (app, { db, env 
         userAgent: request.headers['user-agent'],
       });
 
+      if (!input.departmentId) {
+        const session = await createSession(db, created.id, env.SESSION_TTL_HOURS, {
+          ipAddress: request.ip, userAgent: request.headers['user-agent'],
+        }, true);
+        reply.setCookie(SESSION_COOKIE, session.token, { ...cookieBase, httpOnly: true, expires: session.expiresAt });
+      }
       return reply.code(201).send({
         user: {
           id: created.id,
@@ -42,7 +47,7 @@ const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (app, { db, env 
           status: created.status,
           createdAt: created.createdAt.toISOString(),
         },
-        message: 'Registration received. An administrator must approve your account before you can sign in.',
+        message: 'Registration received. An administrator must approve your account before you can book.',
       });
     },
   );
@@ -51,12 +56,12 @@ const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (app, { db, env 
     '/login',
     { config: { rateLimit: { max: env.NODE_ENV === 'test' ? 1000 : 10, timeWindow: '1 minute' } } },
     async (request, reply) => {
-      const input = parseInput(loginSchema, request.body);
-      const user = await authenticateCredentials(db, input.email, input.password);
+      const input = parseInput(loginSchema.extend({ browseWhilePending: z.boolean().optional() }), request.body);
+      const user = await authenticateCredentials(db, input.email, input.password, input.browseWhilePending);
       const session = await createSession(db, user.id, env.SESSION_TTL_HOURS, {
         ipAddress: request.ip,
         userAgent: request.headers['user-agent'],
-      });
+      }, user.status === 'PENDING_APPROVAL');
 
       reply.setCookie(SESSION_COOKIE, session.token, {
         ...cookieBase,
@@ -71,55 +76,13 @@ const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (app, { db, env 
     },
   );
 
-  app.post(
-    '/google',
-    { config: { rateLimit: { max: env.NODE_ENV === 'test' ? 1000 : 10, timeWindow: '1 minute' } } },
-    async (request, reply) => {
-      const googleSchema = z.object({
-        email: z.string().email(),
-        firstName: z.string().optional(),
-        lastName: z.string().optional(),
-      });
-      const input = parseInput(googleSchema, request.body);
-      const result = await authenticateOrRegisterGoogle(db, input, {
-        ipAddress: request.ip,
-        userAgent: request.headers['user-agent'],
-      });
-
-      if (result.status === 'ACTIVE' && result.user) {
-        const session = await createSession(db, result.user.id, env.SESSION_TTL_HOURS, {
-          ipAddress: request.ip,
-          userAgent: request.headers['user-agent'],
-        });
-
-        reply.setCookie(SESSION_COOKIE, session.token, {
-          ...cookieBase,
-          httpOnly: true,
-          expires: session.expiresAt,
-        });
-
-        return {
-          user: result.user,
-          csrfToken: request.csrfToken ?? request.cookies[CSRF_COOKIE] ?? '',
-        };
-      }
-
-      return reply.code(200).send({
-        status: result.status,
-        message: result.message,
-        isNew: result.isNew,
-        email: input.email,
-      });
-    },
-  );
-
-  app.post('/logout', { preHandler: app.authenticate }, async (request, reply) => {
+  app.post('/logout', { preHandler: app.authenticateCatalog }, async (request, reply) => {
     if (request.auth) await revokeSession(db, request.auth.tokenHash);
     reply.clearCookie(SESSION_COOKIE, cookieBase);
     return reply.code(204).send();
   });
 
-  app.get('/me', { preHandler: app.authenticate }, async (request) => {
+  app.get('/me', { preHandler: app.authenticateCatalog }, async (request) => {
     return {
       user: request.auth!.user,
       csrfToken: request.csrfToken ?? request.cookies[CSRF_COOKIE] ?? '',

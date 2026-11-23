@@ -1,334 +1,171 @@
-import { useDeferredValue, useState, type FormEvent } from 'react';
+import { useDeferredValue, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, MagnifyingGlass, X } from '@phosphor-icons/react';
-import { usePageTitle } from '../auth';
-import { BookingDateField } from '../components/BookingDateField';
-import { VenueListItem, type VenueAvailabilityState } from '../components/booking';
-import { Alert, Button, EmptyState, PageHeader, SelectField, Skeleton, TextField } from '../components/ui';
-import { api, type Availability } from '../lib/api';
-import { addDays, dateInputValue, formatLongDay, formatTimeRange } from '../lib/datetime';
-import { getVenueSlot, readGuestCount, readVenueSlot, venueAvailabilityOptions } from '../lib/venue-slot';
+import { ArrowLeft, ArrowRight, Buildings, CalendarBlank, MagnifyingGlass, MapPin, ProjectorScreen, Snowflake, Users } from '@phosphor-icons/react';
+import { useAuth, usePageTitle } from '../auth';
+import { Alert, Button, EmptyState, Skeleton } from '../components/ui';
+import { api, type Venue } from '../lib/api';
+import { addDays, dateKey, formatShortDay } from '../lib/datetime';
+import { dayAvailability, dayScheduleOptions } from '../lib/slot-schedule';
+import { parseBookingDate, readGuestCount } from '../lib/venue-slot';
 
-const PAGE_SIZE = 8;
-const AVAILABILITY_ORDER: Record<VenueAvailabilityState, number> = {
-  open: 0,
-  competing: 1,
-  checking: 2,
-  unknown: 3,
-  booked: 4,
-};
+const PAGE_SIZE = 9;
+const FILTERS = [
+  { id: 'all', label: 'All spaces', icon: Buildings },
+  { id: 'ac', label: 'AC', icon: Snowflake, facility: 'ac' },
+  { id: 'projector', label: 'Projector', icon: ProjectorScreen, facility: 'projector' },
+  { id: '100', label: '100+ seats', icon: Users, capacity: 100 },
+  { id: '300', label: '300+ seats', icon: Users, capacity: 300 },
+];
 
-function availabilityState(data: Availability | undefined, failed: boolean): VenueAvailabilityState {
-  if (failed) return 'unknown';
-  if (!data) return 'checking';
-  if (data.hasConfirmedConflict) return 'booked';
-  return data.pendingConflicts.length > 0 ? 'competing' : 'open';
+function CatalogCard({ venue, search, availability, failed, day }: {
+  venue: Venue;
+  search: string;
+  availability?: ReturnType<typeof dayAvailability>;
+  failed: boolean;
+  day: string;
+}) {
+  const count = (availability?.open ?? 0) + (availability?.competing ?? 0);
+  const state = availability ? count === 0 ? 'booked' : availability.open === 0 ? 'competing' : 'open' : 'unknown';
+  const label = failed ? 'Availability unavailable' : !availability ? 'Checking availability…'
+    : count === 0 ? `No slots ${day}`
+      : availability.open === 0 ? `Requests pending ${day}`
+        : count <= 3 ? `${count} ${count === 1 ? 'slot' : 'slots'} left ${day}` : `Available ${day}`;
+  return (
+    <article className="catalog-card">
+      <div className="catalog-card-body">
+        <span className="product-icon catalog-venue-icon"><Buildings size={25} aria-hidden="true" /></span>
+        <h3><Link to={`/venues/${venue.id}?${search}`}>{venue.name}</Link></h3>
+        <div className="catalog-meta">
+          <span><MapPin size={16} aria-hidden="true" />{venue.building}</span>
+          <span><Users size={17} aria-hidden="true" />{venue.capacity} seats</span>
+        </div>
+        {venue.facilities.length > 0 && <ul className="amenity-list">
+          {venue.facilities.slice(0, 3).map((facility) => <li key={facility}>{facility}</li>)}
+        </ul>}
+        <div className="catalog-card-foot">
+          <span className={`availability-label availability-${state}`}><i aria-hidden="true" />{label}</span>
+          <Link className="catalog-open" to={`/venues/${venue.id}?${search}`} aria-label={`Check slots for ${venue.name}`}>
+            Check slots <ArrowRight size={16} aria-hidden="true" />
+          </Link>
+        </div>
+      </div>
+    </article>
+  );
 }
 
 export function VenuesPage() {
-  usePageTitle('Browse venues');
+  usePageTitle('Explore venues');
+  const { user } = useAuth();
   const [params, setParams] = useSearchParams();
-  const eventId = params.get('eventId');
-  const search = params.get('q') ?? '';
-  const departmentId = params.get('department') ?? '';
-  const building = params.get('building') ?? '';
-  const facility = params.get('facility') ?? '';
-  const guestFilter = eventId ? null : readGuestCount(params);
-  const proposedSlot = readVenueSlot(params);
-  const checkedSlot = proposedSlot && proposedSlot.from >= new Date() ? proposedSlot : null;
-  const availableDuring = params.get('available') === '1' ? checkedSlot : null;
-
-  const deferredSearch = useDeferredValue(search.trim());
-  const deferredBuilding = useDeferredValue(building.trim());
-  const deferredFacility = useDeferredValue(facility.trim());
-  const [date, setDate] = useState(() => checkedSlot?.date ?? dateInputValue(addDays(new Date(), 1)));
-  const [start, setStart] = useState(checkedSlot?.start ?? '10:00');
-  const [end, setEnd] = useState(checkedSlot?.end ?? '12:00');
-  const [guests, setGuests] = useState(guestFilter ? String(guestFilter) : '');
-  const [timeError, setTimeError] = useState('');
   const [offset, setOffset] = useState(0);
-
-  const departments = useQuery({
-    queryKey: ['departments'],
-    queryFn: api.departments,
-    staleTime: 5 * 60_000,
-  });
-
-  const eventQuery = useQuery({
-    queryKey: ['event', eventId],
-    queryFn: () => api.event(eventId!),
-    enabled: Boolean(eventId),
-  });
-  const savedEvent = eventQuery.data?.event;
-  const minCapacity = savedEvent?.expectedAttendance ?? guestFilter;
+  const today = new Date();
+  const tomorrow = addDays(today, 1);
+  const chosenDate = parseBookingDate(params.get('date'));
+  const date = chosenDate && dateKey(chosenDate) >= dateKey(today) ? chosenDate : tomorrow;
+  const dateValue = dateKey(date);
+  const day = dateValue === dateKey(today) ? 'today' : dateValue === dateKey(tomorrow) ? 'tomorrow' : `on ${formatShortDay(date)}`;
+  const search = params.get('q') ?? '';
+  const building = params.get('building') ?? '';
+  const filter = FILTERS.find(({ id }) => id === params.get('filter')) ?? FILTERS[0]!;
+  const eventId = user?.status === 'ACTIVE' ? params.get('event') ?? params.get('eventId') ?? undefined : undefined;
+  const guests = readGuestCount(params);
+  const searchTerm = useDeferredValue(search.trim());
+  const buildingTerm = useDeferredValue(building.trim());
+  const minCapacity = Math.max(filter.capacity ?? 0, guests ?? 0) || undefined;
 
   const venues = useQuery({
-    queryKey: ['venues', {
-      eventId, search: deferredSearch, departmentId, minCapacity, offset,
-      building: deferredBuilding, facility: deferredFacility,
-      from: availableDuring?.from, to: availableDuring?.to,
-    }],
-    enabled: !eventId || Boolean(savedEvent),
-    queryFn: () =>
-      api.venues({
-        active: true,
-        eventId: eventId ?? undefined,
-        search: deferredSearch || undefined,
-        building: deferredBuilding || undefined,
-        facility: deferredFacility || undefined,
-        from: availableDuring?.from.toISOString(),
-        to: availableDuring?.to.toISOString(),
-        departmentId: departmentId || undefined,
-        minCapacity: minCapacity ?? undefined,
-        limit: PAGE_SIZE,
-        offset,
-      }),
+    queryKey: ['venues', searchTerm, buildingTerm, filter.facility, minCapacity, eventId, offset],
+    queryFn: () => api.venues({
+      search: searchTerm, building: buildingTerm, facility: filter.facility, minCapacity,
+      eventId, offset, limit: PAGE_SIZE,
+    }),
   });
-
+  const cards = venues.data?.venues ?? [];
+  const availability = useQueries({ queries: cards.map(({ id }) => dayScheduleOptions(id, date)) });
   const total = venues.data?.total ?? 0;
-  const visible = (venues.data?.venues ?? []).filter((venue) => venue.capacity >= (minCapacity ?? 0));
-  const availability = useQueries({
-    queries: checkedSlot ? visible.map((venue) => venueAvailabilityOptions(venue.id, checkedSlot)) : [],
-  });
+  const detailParams = new URLSearchParams(params);
+  detailParams.set('date', dateValue);
 
-  const cards = visible.map((venue, index) => ({
-    venue,
-    state: checkedSlot ? availabilityState(availability[index]?.data, availability[index]?.isError ?? false) : undefined,
-  }));
-  const checking = cards.some(({ state }) => state === 'checking');
-  const failedChecks = availability.filter((query) => query.isError);
-  if (checkedSlot && !checking) {
-    cards.sort((left, right) => AVAILABILITY_ORDER[left.state!] - AVAILABILITY_ORDER[right.state!]);
-  }
-  const canRequestCount = cards.filter(({ state }) => state === 'open' || state === 'competing').length;
-  const hasFilters = Boolean(search || departmentId || guestFilter || building || facility || availableDuring);
-
-  function changeFilter(name: string, value: string) {
-    setParams((current) => {
-      const next = new URLSearchParams(current);
-      if (value) next.set(name, value);
-      else next.delete(name);
-      return next;
-    }, { replace: true });
-    setOffset(0);
-  }
-
-  function clearFilters() {
-    setParams((current) => {
-      const next = new URLSearchParams(current);
-      for (const filter of ['q', 'department', 'guests', 'building', 'facility', 'available']) next.delete(filter);
-      return next;
-    }, { replace: true });
-    setGuests('');
-    setOffset(0);
-  }
-
-  function checkSlot(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const slot = getVenueSlot(date, start, end);
-    if (!slot) {
-      setTimeError('Choose an end time after the start time.');
-      return;
-    }
-    if (slot.from < new Date()) {
-      setTimeError('Choose a start time in the future.');
-      return;
-    }
-    setTimeError('');
+  function change(key: string, value: string) {
     setOffset(0);
     setParams((current) => {
       const next = new URLSearchParams(current);
-      next.set('date', date);
-      next.set('start', start);
-      next.set('end', end);
-      if (!eventId && guests) next.set('guests', guests);
-      else next.delete('guests');
+      if (value) next.set(key, value);
+      else next.delete(key);
       return next;
     }, { replace: true });
-    if (offset === 0 && (eventId || guests === String(guestFilter ?? '')) &&
-      checkedSlot?.from.getTime() === slot.from.getTime() && checkedSlot.to.getTime() === slot.to.getTime()) {
-      if (availableDuring) void venues.refetch();
-      for (const query of availability) void query.refetch();
-    }
   }
 
   return (
-    <>
-      <section className="venue-search-panel" aria-label="Find a venue by date and time">
-        <PageHeader
-          title="Find the right space"
-          description={savedEvent
-            ? `${savedEvent.title} · ${savedEvent.expectedAttendance} expected attendees`
-            : eventId ? 'Check a date and time for your saved event.'
-              : 'Choose a date and time, then compare spaces for your event.'}
-          actions={<Link to="/my-events" className="text-link venue-search-events">My events <ArrowRight size={16} aria-hidden="true" /></Link>}
-        />
-        <div className="venue-date-shortcuts" aria-label="Date shortcuts" style={{ marginBottom: '10px' }}>
-          <span className="shortcut-label">Quick dates:</span>
-          {[
-            { label: 'Tomorrow', days: 1 },
-            { label: 'In 3 days', days: 3 },
-            { label: 'Next week', days: 7 },
-          ].map((preset) => (
-            <button
-              key={preset.label}
-              type="button"
-              className={`venue-preset-chip ${date === dateInputValue(addDays(new Date(), preset.days)) ? 'is-active' : ''}`}
-              onClick={() => {
-                const nextDate = dateInputValue(addDays(new Date(), preset.days));
-                setDate(nextDate);
-                setTimeError('');
-              }}
-            >
-              {preset.label}
-            </button>
-          ))}
+    <div className="product-page catalog-page">
+      <section className="product-hero catalog-hero" aria-labelledby="catalog-title">
+        <div className="product-hero-copy">
+          <span className="hero-label"><MapPin size={16} aria-hidden="true" /> Campus spaces</span>
+          <h1 id="catalog-title">Find your next space.</h1>
+          <p>Book an auditorium, meeting room, or lab for your next campus event.</p>
         </div>
-        <form className={eventId ? 'venue-slot-form venue-slot-form-event' : 'venue-slot-form'} onSubmit={checkSlot}>
-          <BookingDateField label="Event date" name="venue-date" value={date} onChange={(value) => { setDate(value); setTimeError(''); }} />
-          <TextField label="Start time" name="venue-start" type="time" value={start} onChange={(event) => {
-            setStart(event.target.value);
-            setTimeError('');
-          }} required />
-          <TextField label="End time" name="venue-end" type="time" value={end} onChange={(event) => {
-            setEnd(event.target.value);
-            setTimeError('');
-          }} required />
-          {!eventId && (
-            <TextField label="Guests" name="venue-guests" type="number" min={1} max={100_000}
-              placeholder="Any" value={guests} onChange={(event) => setGuests(event.target.value)} optional />
-          )}
-          <Button type="submit" size="lg" className="venue-slot-submit">
-            <MagnifyingGlass size={19} aria-hidden="true" /> Check availability
-          </Button>
-          {timeError && <p className="venue-slot-error" role="alert">{timeError}</p>}
-        </form>
       </section>
 
-      <section className="venue-catalog" aria-labelledby="venues-heading">
-        <div className="venue-catalog-head">
-          <div>
-            <h2 id="venues-heading">Campus venues</h2>
-            <p role="status">
-              {checkedSlot
-                ? <>{formatLongDay(checkedSlot.from)} · {formatTimeRange(checkedSlot.from, checkedSlot.to)}{minCapacity && ` · ${minCapacity} guests`}</>
-                : savedEvent ? `Showing spaces for at least ${savedEvent.expectedAttendance} people.`
-                  : 'Browse all spaces accepting requests.'}
-            </p>
-            {checkedSlot && (
-              <label className="venue-availability-filter">
-                <input type="checkbox" checked={Boolean(availableDuring)}
-                  onChange={(event) => changeFilter('available', event.target.checked ? '1' : '')} />
-                Hide fully booked venues
-              </label>
-            )}
+      <section className="catalog-search" aria-label="Search and filter venues">
+        <label className="catalog-search-field catalog-search-main">
+          <MagnifyingGlass size={22} aria-hidden="true" />
+          <span><strong>Search venues</strong><input type="search" value={search} maxLength={100}
+            placeholder="Venue name or building" onChange={(event) => change('q', event.target.value)} /></span>
+        </label>
+        <label className="catalog-search-field">
+          <CalendarBlank size={22} aria-hidden="true" />
+          <span><strong>Date</strong><input type="date" value={dateValue} min={dateKey(today)}
+            onChange={(event) => { if (event.target.value) change('date', event.target.value); }} /></span>
+        </label>
+        <label className="catalog-search-field">
+          <Buildings size={22} aria-hidden="true" />
+          <span><strong>Building</strong><input type="search" value={building} maxLength={100}
+            placeholder="All buildings" onChange={(event) => change('building', event.target.value)} /></span>
+        </label>
+      </section>
+
+      <section className="catalog-results" aria-labelledby="catalog-results-title">
+        <div className="product-heading-row">
+          <div><h2 id="catalog-results-title">Explore venues</h2>
+            {venues.data && <p role="status">{total} {total === 1 ? 'space' : 'spaces'} · {formatShortDay(date)}</p>}
           </div>
-          <div className="venue-catalog-filters" aria-label="Venue filters">
-            <TextField label="Search venues" name="venue-search" type="search" value={search}
-              onChange={(event) => changeFilter('q', event.target.value)} maxLength={100}
-              placeholder="Name, code or building" leadingIcon={<MagnifyingGlass size={17} />}
-              trailing={search && (
-                <button type="button" className="field-action" aria-label="Clear search" onClick={() => changeFilter('q', '')}>
-                  <X size={15} aria-hidden="true" />
-                </button>
-              )} />
-            <SelectField label="Department" name="venue-department" value={departmentId}
-              onChange={(event) => changeFilter('department', event.target.value)}>
-              <option value="">All departments</option>
-              {departments.data?.departments.map((department) => (
-                <option key={department.id} value={department.id}>{department.name}</option>
-              ))}
-            </SelectField>
-            <TextField label="Building" name="venue-building" type="search" value={building}
-              onChange={(event) => changeFilter('building', event.target.value)} maxLength={100}
-              placeholder="Any building" />
-            <TextField label="Facility" name="venue-facility" type="search" value={facility}
-              onChange={(event) => changeFilter('facility', event.target.value)} maxLength={100}
-              placeholder="e.g. Projector" />
-          </div>
-          <div className="venue-quick-filters" aria-label="Quick amenity filters" style={{ marginTop: '8px' }}>
-            {['', 'projector', 'stage', 'ac', 'wifi', 'whiteboard'].map((f) => (
-              <button
-                key={f || 'all'}
-                type="button"
-                className={`venue-preset-chip ${facility.toLowerCase() === f ? 'is-active' : ''}`}
-                onClick={() => changeFilter('facility', f)}
-              >
-                {f ? f.charAt(0).toUpperCase() + f.slice(1) : 'All amenities'}
+          <div className="product-chips" aria-label="Venue filters">
+            {FILTERS.map(({ id, label, icon: Icon }) => (
+              <button type="button" key={id} aria-pressed={filter.id === id}
+                onClick={() => change('filter', id === 'all' ? '' : id)}>
+                <Icon size={17} aria-hidden="true" /> {label}
               </button>
             ))}
           </div>
         </div>
-
-        {eventId && eventQuery.isError && !savedEvent ? (
-          <Alert tone="danger" title="Could not load the saved event">
-            <button type="button" className="inline-link" onClick={() => void eventQuery.refetch()}>Try again</button>
-          </Alert>
-        ) : venues.isError ? (
-          <Alert tone="danger" title="Could not load venues">
-            <button type="button" className="inline-link" onClick={() => void venues.refetch()}>Try again</button>
-          </Alert>
-        ) : venues.isPending ? (
-          <div className="venue-cards-skeleton" role="status">
-            <span className="sr-only">Finding venues…</span>
-            {[0, 1, 2, 3].map((item) => <Skeleton key={item} className="skeleton-block" />)}
-          </div>
-        ) : visible.length === 0 ? (
-          <div className="card">
-            <EmptyState
-              icon={<MagnifyingGlass size={26} />}
-              title={hasFilters ? 'No venues match these filters'
-                : savedEvent ? 'No venues fit this event' : 'No venues accepting requests'}
-              description={hasFilters
-                ? 'Try a different date or clear the filters.'
-                : savedEvent ? `No available venue can hold ${savedEvent.expectedAttendance} people.`
-                  : 'Check the venue catalog again later.'}
-              action={hasFilters && <Button variant="secondary" onClick={clearFilters}>Clear filters</Button>}
-            />
-          </div>
-        ) : (
-          <>
-            <div className="venue-results-summary" role="status">
-              <span>
-                <strong>{total} {total === 1 ? 'space' : 'spaces'}</strong>
-                {checkedSlot && (checking ? ' · Checking availability…'
-                  : failedChecks.length < cards.length
-                    ? ` · ${canRequestCount} can be requested${total > PAGE_SIZE ? ' on this page' : ''}`
-                    : '')}
-              </span>
-              {checkedSlot && !checking && failedChecks.length === 0 && canRequestCount === 0 && (
-                <span>Try another date or time.</span>
-              )}
-              {failedChecks.length > 0 && (
-                <button type="button" className="inline-link" onClick={() => {
-                  for (const query of failedChecks) void query.refetch();
-                }}>Retry availability checks</button>
-              )}
-            </div>
-
-            <ul className="venue-results" aria-label="Matching venues">
-              {cards.map(({ venue, state }) => (
-                <VenueListItem key={venue.id} venue={venue} search={params.toString()} availability={state} />
-              ))}
-            </ul>
-
-            {total > PAGE_SIZE && (
-              <div className="venue-pagination">
-                <Button variant="secondary" size="sm" disabled={offset === 0}
-                  onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
-                  <ArrowLeft size={15} aria-hidden="true" /> Previous
-                </Button>
-                <span>{offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}</span>
-                <Button variant="secondary" size="sm" disabled={offset + PAGE_SIZE >= total}
-                  onClick={() => setOffset(offset + PAGE_SIZE)}>
-                  Next <ArrowRight size={15} aria-hidden="true" />
-                </Button>
-              </div>
-            )}
-          </>
-        )}
+        {venues.isError ? <Alert tone="danger" title="Could not load venues">
+          <button type="button" className="inline-link" onClick={() => void venues.refetch()}>Try again</button>
+        </Alert> : venues.isPending ? <div className="catalog-grid" role="status">
+          <span className="sr-only">Finding venues…</span>
+          {[0, 1, 2].map((item) => <Skeleton key={item} className="catalog-skeleton" />)}
+        </div> : !cards.length ? <EmptyState icon={<MagnifyingGlass size={26} />} title={eventId && !minCapacity && !searchTerm && !buildingTerm && filter.id === 'all' ? 'No venues fit this event' : 'No venues found'}
+          description="Try another search or clear a filter."
+          action={<Button variant="secondary" onClick={() => {
+            setOffset(0);
+            setParams({ date: dateValue, ...(eventId ? { event: eventId } : {}) }, { replace: true });
+          }}>Clear filters</Button>} /> : <div className="catalog-grid">
+          {cards.map((venue, i) => (
+            <CatalogCard key={venue.id} venue={venue} day={day}
+              search={detailParams.toString()} failed={availability[i]?.isError ?? false}
+              availability={availability[i]?.data && dayAvailability(date, venue, availability[i].data.entries)} />
+          ))}
+        </div>}
+        {total > PAGE_SIZE && <div className="venue-pagination">
+          <Button variant="secondary" disabled={!offset} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
+            <ArrowLeft size={16} /> Previous
+          </Button>
+          <span>{offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}</span>
+          <Button variant="secondary" disabled={offset + PAGE_SIZE >= total} onClick={() => setOffset(offset + PAGE_SIZE)}>
+            Next <ArrowRight size={16} />
+          </Button>
+        </div>}
       </section>
-    </>
+    </div>
   );
 }

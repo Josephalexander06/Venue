@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import '@fontsource-variable/lexend';
 import '@fontsource-variable/source-sans-3';
 import './styles.css';
+import './product.css';
 import { App } from './App';
 import { AuthProvider } from './auth';
 import { ErrorBoundary } from './components/ErrorBoundary';

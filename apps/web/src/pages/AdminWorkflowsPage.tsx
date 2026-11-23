@@ -32,8 +32,7 @@ export function AdminWorkflowsPage() {
   return (
     <>
       <PageHeader
-        title="Approval workflows"
-        description="Set approval stages, reviewer roles and departmental scope for each venue workflow."
+        title="Approval steps"
         actions={
           <Button
             variant="primary"
@@ -108,8 +107,8 @@ export function AdminWorkflowsPage() {
               {workflow.description && <p className="workflow-desc">{workflow.description}</p>}
               <details className="workflow-stage-details">
                 <summary>
-                  {workflow.steps.length} approval {workflow.steps.length === 1 ? 'stage' : 'stages'}
-                  {workflow.stepsLocked && <span><Lock size={14} aria-hidden="true" /> Stages locked</span>}
+                  {workflow.steps.length} approval {workflow.steps.length === 1 ? 'step' : 'steps'}
+                  {workflow.stepsLocked && <span><Lock size={14} aria-hidden="true" /> Steps locked</span>}
                 </summary>
                 <ol>
                   {workflow.steps.map((step) => (

@@ -1,5 +1,5 @@
 import { and, eq, gt, isNotNull, isNull, lt, or } from 'drizzle-orm';
-import type { SessionUser, UserStatus } from '@venue/shared';
+import { UNASSIGNED_DEPARTMENT_CODE, type SessionUser, type UserStatus } from '@venue/shared';
 import type { Database, DbExecutor } from '../../db/index.js';
 import { departments, sessions, users } from '../../db/schema.js';
 import { AppError } from '../../lib/errors.js';
@@ -26,20 +26,24 @@ export async function registerUser(
     firstName: string;
     lastName: string;
     phone?: string;
-    departmentId: string;
+    departmentId?: string;
   },
   context: { ipAddress?: string; userAgent?: string },
 ) {
-  const [department] = await db
-    .select({ id: departments.id })
-    .from(departments)
-    .where(eq(departments.id, input.departmentId))
-    .limit(1);
-  if (!department) throw new AppError(400, 'DEPARTMENT_NOT_FOUND', 'Choose a valid department.');
-
   const passwordHash = await hashPassword(input.password);
-
   return db.transaction(async (tx) => {
+    if (!input.departmentId) {
+      await tx.insert(departments).values({
+        code: UNASSIGNED_DEPARTMENT_CODE,
+        name: 'Awaiting department assignment',
+      }).onConflictDoNothing({ target: departments.code });
+    }
+    const [department] = await tx.select({ id: departments.id }).from(departments)
+      .where(input.departmentId
+        ? eq(departments.id, input.departmentId)
+        : eq(departments.code, UNASSIGNED_DEPARTMENT_CODE)).limit(1);
+    if (!department) throw new AppError(400, 'DEPARTMENT_NOT_FOUND', 'Choose a valid department.');
+
     const [created] = await tx
       .insert(users)
       .values({
@@ -48,7 +52,7 @@ export async function registerUser(
         firstName: input.firstName,
         lastName: input.lastName,
         phone: input.phone || null,
-        departmentId: input.departmentId,
+        departmentId: department.id,
       })
       .returning({ id: users.id, email: users.email, status: users.status, createdAt: users.createdAt });
 
@@ -72,6 +76,7 @@ export async function authenticateCredentials(
   db: Database,
   email: string,
   password: string,
+  allowPending = false,
 ): Promise<UserView> {
   const [account] = await db
     .select({ id: users.id, status: users.status, passwordHash: users.passwordHash })
@@ -87,94 +92,13 @@ export async function authenticateCredentials(
   const passwordMatches = await verifyPassword(account.passwordHash, password);
   if (!passwordMatches) throw INVALID_CREDENTIALS();
 
-  if (account.status !== 'ACTIVE') {
+  if (account.status !== 'ACTIVE' && !(allowPending && account.status === 'PENDING_APPROVAL')) {
     throw accountStatusError(account.status);
   }
 
   const user = await findUserView(db, account.id);
   if (!user) throw INVALID_CREDENTIALS();
   return user;
-}
-
-export async function authenticateOrRegisterGoogle(
-  db: Database,
-  input: {
-    email: string;
-    firstName?: string;
-    lastName?: string;
-  },
-  context: { ipAddress?: string; userAgent?: string },
-): Promise<{ user?: UserView; status: UserStatus; message?: string; isNew?: boolean }> {
-  const email = input.email.trim().toLowerCase();
-  const [account] = await db
-    .select({ id: users.id, status: users.status })
-    .from(users)
-    .where(eq(users.email, email))
-    .limit(1);
-
-  if (account) {
-    if (account.status === 'ACTIVE') {
-      const user = await findUserView(db, account.id);
-      if (!user) throw INVALID_CREDENTIALS();
-      return { user, status: 'ACTIVE' };
-    }
-    if (account.status === 'PENDING_APPROVAL') {
-      return {
-        status: 'PENDING_APPROVAL',
-        message: 'Your Google account is in the review queue. An administrator will verify and approve your account.',
-      };
-    }
-    throw accountStatusError(account.status);
-  }
-
-  // Find a default department to assign new users
-  const [defaultDept] = await db
-    .select({ id: departments.id })
-    .from(departments)
-    .limit(1);
-
-  if (!defaultDept) {
-    throw new AppError(500, 'NO_DEPARTMENTS', 'No departments available for registration.');
-  }
-
-  const randomPassword = `GAuth_${Math.random().toString(36).slice(2)}_${Date.now()}`;
-  const passwordHash = await hashPassword(randomPassword);
-  const firstName = input.firstName?.trim() || email.split('@')[0] || 'Google';
-  const lastName = input.lastName?.trim() || 'User';
-
-  const created = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(users)
-      .values({
-        email,
-        passwordHash,
-        firstName,
-        lastName,
-        departmentId: defaultDept.id,
-        status: 'PENDING_APPROVAL',
-      })
-      .returning({ id: users.id, email: users.email, status: users.status });
-
-    if (!row) throw new Error('User insert returned no row.');
-
-    await writeAudit(tx, {
-      actorId: null,
-      action: 'USER_REGISTERED',
-      entityName: 'users',
-      entityId: row.id,
-      newState: { email: row.email, status: row.status, authProvider: 'google' },
-      ipAddress: context.ipAddress,
-      userAgent: context.userAgent,
-    });
-
-    return row;
-  });
-
-  return {
-    status: created.status,
-    message: 'Your account was created via Google. An administrator must verify and approve it before you can book.',
-    isNew: true,
-  };
 }
 
 function accountStatusError(status: UserStatus) {
@@ -194,13 +118,16 @@ function accountStatusError(status: UserStatus) {
   }
 }
 
+export const PENDING_SESSION_PREFIX = 'pending.';
+
 export async function createSession(
   db: Database,
   userId: string,
   ttlHours: number,
   context: { ipAddress?: string; userAgent?: string },
+  pending = false,
 ) {
-  const token = newOpaqueToken();
+  const token = (pending ? PENDING_SESSION_PREFIX : '') + newOpaqueToken();
   const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000);
   await db.insert(sessions).values({
     userId,

@@ -126,6 +126,7 @@ export interface EventSummary {
   facultyCoordinatorId?: string | null;
   facultyCoordinator?: FacultyCoordinatorSummary | null;
   creatorId?: string;
+  submittedByName?: string;
   createdAt: string;
   updatedAt: string;
 }

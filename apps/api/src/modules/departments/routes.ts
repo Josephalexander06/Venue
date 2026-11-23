@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { and, asc, countDistinct, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, countDistinct, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
+  UNASSIGNED_DEPARTMENT_CODE,
   departmentInputSchema,
   departmentUpdateSchema,
   type DepartmentInput,
@@ -24,6 +25,7 @@ const departmentRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db 
     const rows = await db
       .select({ id: departments.id, code: departments.code, name: departments.name })
       .from(departments)
+      .where(ne(departments.code, UNASSIGNED_DEPARTMENT_CODE))
       .orderBy(asc(departments.name));
     return { departments: rows };
   });
@@ -89,6 +91,7 @@ const departmentRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db 
         .leftJoin(users, eq(users.departmentId, departments.id))
         .leftJoin(venues, eq(venues.departmentId, departments.id))
         .leftJoin(events, eq(events.departmentId, departments.id))
+        .where(ne(departments.code, UNASSIGNED_DEPARTMENT_CODE))
         .groupBy(departments.id)
         .orderBy(asc(departments.name));
 
@@ -112,6 +115,7 @@ const departmentRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db 
     handler: async (request, reply) => {
       const input = parseInput(departmentInputSchema, request.body);
       const code = input.code.trim().toUpperCase();
+      if (code === UNASSIGNED_DEPARTMENT_CODE) throw new AppError(400, 'DEPARTMENT_RESERVED', 'This department code is reserved.');
 
       const [existing] = await db
         .select({ id: departments.id })
@@ -179,6 +183,10 @@ const departmentRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db 
           throw new AppError(404, 'DEPARTMENT_NOT_FOUND', 'Department not found.');
         }
 
+        if (existing.code === UNASSIGNED_DEPARTMENT_CODE || input.code === UNASSIGNED_DEPARTMENT_CODE) {
+          throw new AppError(400, 'DEPARTMENT_RESERVED', 'This department code is reserved.');
+        }
+
         if (input.code) {
           const code = input.code.trim().toUpperCase();
           const [duplicate] = await db
@@ -240,7 +248,7 @@ const departmentRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db 
         .where(eq(departments.id, id))
         .limit(1);
 
-      if (!existing) {
+      if (!existing || existing.code === UNASSIGNED_DEPARTMENT_CODE) {
         throw new AppError(404, 'DEPARTMENT_NOT_FOUND', 'Department not found.');
       }
 

@@ -15,6 +15,7 @@ import type {
   SessionUser,
   UserStatus,
   VenueInput,
+  VenueStatus,
   VenueRequestInput,
   VenueRequestUpdateInput,
   VenueUpdateInput,
@@ -58,6 +59,7 @@ export interface Venue {
   setupBufferMins: number;
   teardownBufferMins: number;
   isActive: boolean;
+  status: VenueStatus;
   department: { id: string; code: string; name: string } | null;
   workflow?: { id: string; name: string } | null;
   createdAt: string;
@@ -79,6 +81,7 @@ export interface VenueListParams {
   departmentId?: string;
   minCapacity?: number;
   active?: boolean;
+  status?: VenueStatus;
   limit?: number;
   offset?: number;
 }
@@ -161,6 +164,7 @@ export interface EventSummary {
   status: EventStatus;
   department: { id: string; code: string; name: string };
   creatorId?: string;
+  submittedByName?: string;
   facultyCoordinatorId?: string | null;
   facultyCoordinator?: {
     id: string;
@@ -352,6 +356,7 @@ export interface ApprovalInboxItem {
   event: EventSummary;
   step: WorkflowStepView;
   conflicts: { confirmedCount: number; pendingCount: number };
+  needsAction: boolean;
 }
 
 export interface ApprovalInboxList {
@@ -445,18 +450,8 @@ export const api = {
     }
   },
 
-  login(input: { email: string; password: string }) {
+  login(input: { email: string; password: string; browseWhilePending?: boolean }) {
     return request<AuthSessionResponse>('/auth/login', {
-      method: 'POST',
-      body: jsonBody(input),
-    });
-  },
-
-  googleAuth(input: { email: string; firstName?: string; lastName?: string }) {
-    return request<
-      | AuthSessionResponse
-      | { status: UserStatus; message?: string; isNew?: boolean; email: string }
-    >('/auth/google', {
       method: 'POST',
       body: jsonBody(input),
     });
@@ -492,6 +487,7 @@ export const api = {
     }
     if (params.departmentId) query.set('departmentId', params.departmentId);
     if (params.minCapacity) query.set('minCapacity', String(params.minCapacity));
+    if (params.status) query.set('status', params.status);
     if (params.active !== undefined) query.set('active', String(params.active));
     query.set('limit', String(params.limit ?? 50));
     query.set('offset', String(params.offset ?? 0));
@@ -523,6 +519,13 @@ export const api = {
   venueCalendar(id: string, from: string, to: string) {
     const query = new URLSearchParams({ from, to });
     return request<VenueCalendar>(`/venues/${id}/calendar?${query.toString()}`);
+  },
+
+  venueSlotSchedule(id: string, from: string, to: string, signal?: AbortSignal) {
+    const query = new URLSearchParams({ from, to });
+    return request<{ entries: Pick<CalendarEntry, 'kind' | 'rangeStart' | 'rangeEnd'>[] }>(
+      `/venues/${id}/slot-schedule?${query}`, { signal },
+    );
   },
 
   venueAvailability(id: string, from: string, to: string, excludeRequestId?: string, signal?: AbortSignal) {
@@ -583,10 +586,11 @@ export const api = {
     return request<RequestDetailView>(`/venue-requests/${id}`);
   },
 
-  approvalInbox(params: { limit?: number; offset?: number } = {}, signal?: AbortSignal) {
+  approvalInbox(params: { limit?: number; offset?: number; view?: 'pending' | 'decided' | 'all' } = {}, signal?: AbortSignal) {
     const query = new URLSearchParams();
     query.set('limit', String(params.limit ?? 25));
     query.set('offset', String(params.offset ?? 0));
+    if (params.view) query.set('view', params.view);
     return request<ApprovalInboxList>(`/approvals/inbox?${query.toString()}`, { signal });
   },
 
@@ -657,10 +661,10 @@ export const api = {
     return request<UserList>(`/admin/users?${query.toString()}`);
   },
 
-  approveUser(userId: string, roles: RoleAssignment[]) {
+  approveUser(userId: string, roles: RoleAssignment[], departmentId?: string) {
     return request<{ user: UserView }>(`/admin/users/${userId}/approve`, {
       method: 'PATCH',
-      body: jsonBody({ roles }),
+      body: jsonBody({ roles, departmentId }),
     });
   },
 

@@ -1,14 +1,15 @@
 import { lazy, Suspense } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import {
   useAuth,
   RedirectIfAuthed,
   RequireAdmin,
+  RequireActive,
   RequireApprover,
   RequireAuth,
 } from './auth';
 import { AppShell } from './components/AppShell';
-import { Spinner } from './components/ui';
+import { Skeleton } from './components/ui';
 
 const HomePage = lazy(() => import('./pages/HomePage').then((module) => ({ default: module.HomePage })));
 const AccountPage = lazy(() =>
@@ -28,6 +29,9 @@ const VenuesPage = lazy(() =>
 );
 const VenueDetailPage = lazy(() =>
   import('./pages/VenueDetailPage').then((module) => ({ default: module.VenueDetailPage })),
+);
+const MyBookingsPage = lazy(() =>
+  import('./pages/MyBookingsPage').then((module) => ({ default: module.MyBookingsPage })),
 );
 const MyEventsPage = lazy(() =>
   import('./pages/MyEventsPage').then((module) => ({ default: module.MyEventsPage })),
@@ -66,17 +70,23 @@ const NotFoundPage = lazy(() =>
 );
 
 function HomeRedirect() {
-  const { isAdmin } = useAuth();
-  return <Navigate to={isAdmin ? '/admin' : '/home'} replace />;
+  const { user } = useAuth();
+  return <Navigate to={user?.status === 'PENDING_APPROVAL' ? '/register/pending' : '/home'} replace />;
+}
+
+function LegacyBookingRedirect() {
+  const { id } = useParams();
+  const { search, hash } = useLocation();
+  const params = new URLSearchParams(search);
+  const target = id || params.get('highlight');
+  const path = target ? `/bookings/${target}` : params.has('create') || hash ? '/bookings/events' : '/bookings';
+  return <Navigate to={path + search + hash} replace />;
 }
 
 function RouteFallback() {
-  return (
-    <div className="route-fallback" role="status" aria-live="polite">
-      <Spinner size={20} />
-      Loading page…
-    </div>
-  );
+  return <div className="route-fallback" role="status">
+    <span className="sr-only">Loading page</span><Skeleton className="skeleton-block" />
+  </div>;
 }
 
 export function App() {
@@ -86,29 +96,35 @@ export function App() {
         <Route element={<RedirectIfAuthed />}>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
-          <Route path="/register/pending" element={<RegistrationPendingPage />} />
         </Route>
+
+        <Route path="/register/pending" element={<RegistrationPendingPage />} />
 
         <Route element={<RequireAuth />}>
           <Route path="/forbidden" element={<ForbiddenPage />} />
           <Route element={<AppShell />}>
             <Route index element={<HomeRedirect />} />
-            <Route path="/home" element={<HomePage />} />
             <Route path="/venues" element={<VenuesPage />} />
             <Route path="/venues/:id" element={<VenueDetailPage />} />
-            <Route path="/my-events" element={<MyEventsPage />} />
-            <Route path="/my-events/requests/:id" element={<BookingStatusPage />} />
-            <Route path="/account" element={<AccountPage />} />
-            <Route path="/approvals/:id" element={<ApprovalDetailPage />} />
-            <Route element={<RequireApprover />}>
-              <Route path="/approvals" element={<ApprovalInboxPage />} />
-            </Route>
-            <Route element={<RequireAdmin />}>
-              <Route path="/admin" element={<AdminOverviewPage />} />
-              <Route path="/admin/users" element={<AdminUsersPage />} />
-              <Route path="/admin/venues" element={<AdminVenuesPage />} />
-              <Route path="/admin/workflows" element={<AdminWorkflowsPage />} />
-              <Route path="/admin/departments" element={<AdminDepartmentsPage />} />
+            <Route element={<RequireActive />}>
+              <Route path="/home" element={<HomePage />} />
+              <Route path="/bookings" element={<MyBookingsPage />} />
+              <Route path="/bookings/events" element={<MyEventsPage />} />
+              <Route path="/bookings/:id" element={<BookingStatusPage />} />
+              <Route path="/my-events" element={<LegacyBookingRedirect />} />
+              <Route path="/my-events/requests/:id" element={<LegacyBookingRedirect />} />
+              <Route path="/account" element={<AccountPage />} />
+              <Route path="/approvals/:id" element={<ApprovalDetailPage />} />
+              <Route element={<RequireApprover />}>
+                <Route path="/approvals" element={<ApprovalInboxPage />} />
+              </Route>
+              <Route element={<RequireAdmin />}>
+                <Route path="/admin" element={<AdminOverviewPage />} />
+                <Route path="/admin/users" element={<AdminUsersPage />} />
+                <Route path="/admin/venues" element={<AdminVenuesPage />} />
+                <Route path="/admin/workflows" element={<AdminWorkflowsPage />} />
+                <Route path="/admin/departments" element={<AdminDepartmentsPage />} />
+              </Route>
             </Route>
           </Route>
         </Route>

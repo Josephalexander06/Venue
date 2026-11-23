@@ -11,7 +11,7 @@ import {
   type SQL,
   type SQLWrapper,
 } from 'drizzle-orm';
-import type { VenueInput, VenueUpdateInput } from '@venue/shared';
+import type { VenueInput, VenueStatus, VenueUpdateInput } from '@venue/shared';
 import type { Database } from '../../db/index.js';
 import {
   approvalWorkflows,
@@ -35,6 +35,7 @@ const venueSelection = {
   setupBufferMins: venues.setupBufferMins,
   teardownBufferMins: venues.teardownBufferMins,
   isActive: venues.isActive,
+  inMaintenance: venues.inMaintenance,
   createdAt: venues.createdAt,
   updatedAt: venues.updatedAt,
   departmentId: departments.id,
@@ -55,6 +56,7 @@ interface VenueRow {
   setupBufferMins: number;
   teardownBufferMins: number;
   isActive: boolean;
+  inMaintenance: boolean;
   createdAt: Date;
   updatedAt: Date;
   departmentId: string | null;
@@ -75,6 +77,7 @@ export interface VenueView {
   setupBufferMins: number;
   teardownBufferMins: number;
   isActive: boolean;
+  status: VenueStatus;
   department: { id: string; code: string; name: string } | null;
   workflow: { id: string; name: string } | null;
   createdAt: string;
@@ -93,6 +96,7 @@ function mapVenue(row: VenueRow): VenueView {
     setupBufferMins: row.setupBufferMins,
     teardownBufferMins: row.teardownBufferMins,
     isActive: row.isActive,
+    status: row.isActive ? 'ACTIVE' : row.inMaintenance ? 'MAINTENANCE' : 'DECOMMISSIONED',
     department:
       row.departmentId && row.departmentCode && row.departmentName
         ? { id: row.departmentId, code: row.departmentCode, name: row.departmentName }
@@ -114,6 +118,7 @@ interface ListVenueFilters {
   departmentId?: string;
   minCapacity?: number;
   active?: boolean;
+  status?: VenueStatus;
   limit: number;
   offset: number;
 }
@@ -121,13 +126,20 @@ interface ListVenueFilters {
 export async function listVenues(db: Database, filters: ListVenueFilters) {
   const conditions: SQL[] = [];
   if (filters.active !== undefined) conditions.push(eq(venues.isActive, filters.active));
+  if (filters.status) {
+    conditions.push(eq(venues.isActive, filters.status === 'ACTIVE'));
+    conditions.push(eq(venues.inMaintenance, filters.status === 'MAINTENANCE'));
+  }
   if (filters.departmentId) conditions.push(eq(venues.departmentId, filters.departmentId));
   if (filters.minCapacity) conditions.push(gte(venues.capacity, filters.minCapacity));
   if (filters.building) conditions.push(ilike(venues.building, `%${filters.building}%`));
   if (filters.facility) {
+    const facility = filters.facility.toLowerCase() === 'ac'
+      ? sql`lower(btrim(facility.name)) in ('ac', 'a/c') or facility.name ilike '%air condition%'`
+      : sql`facility.name ilike ${`%${filters.facility}%`}`;
     conditions.push(sql`exists (
       select 1 from jsonb_array_elements_text(${venues.facilities}) as facility(name)
-      where facility.name ilike ${`%${filters.facility}%`}
+      where ${facility}
     )`);
   }
   if (filters.availableDuring) {
@@ -217,7 +229,8 @@ export async function createVenue(db: Database, input: VenueInput) {
       facilities: input.facilities,
       setupBufferMins: input.setupBufferMins,
       teardownBufferMins: input.teardownBufferMins,
-      isActive: input.isActive,
+      isActive: input.status ? input.status === 'ACTIVE' : input.isActive,
+      inMaintenance: input.status === 'MAINTENANCE',
       departmentId,
       workflowId,
     })
@@ -237,7 +250,10 @@ export async function updateVenue(db: Database, venueId: string, input: VenueUpd
   if (input.facilities !== undefined) values.facilities = input.facilities;
   if (input.setupBufferMins !== undefined) values.setupBufferMins = input.setupBufferMins;
   if (input.teardownBufferMins !== undefined) values.teardownBufferMins = input.teardownBufferMins;
-  if (input.isActive !== undefined) values.isActive = input.isActive;
+  if (input.status || input.isActive !== undefined) {
+    values.isActive = input.status ? input.status === 'ACTIVE' : input.isActive;
+    values.inMaintenance = input.status === 'MAINTENANCE';
+  }
   if (input.departmentId !== undefined) values.departmentId = await requireDepartment(db, input.departmentId);
   if (input.workflowId !== undefined) values.workflowId = await requireWorkflow(db, input.workflowId);
 
@@ -247,7 +263,7 @@ export async function updateVenue(db: Database, venueId: string, input: VenueUpd
 
 export async function archiveVenue(db: Database, venueId: string) {
   await requireVenue(db, venueId, true);
-  await db.update(venues).set({ isActive: false }).where(eq(venues.id, venueId));
+  await db.update(venues).set({ isActive: false, inMaintenance: false }).where(eq(venues.id, venueId));
   return requireVenue(db, venueId, true);
 }
 

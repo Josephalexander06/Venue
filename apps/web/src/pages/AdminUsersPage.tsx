@@ -36,8 +36,8 @@ type StatusFilter = UserStatus | 'ALL';
 const PAGE_SIZE = 25;
 
 const FILTERS: { value: StatusFilter; label: string }[] = [
+  { value: 'PENDING_APPROVAL', label: 'Pending' },
   { value: 'ALL', label: 'All' },
-  { value: 'PENDING_APPROVAL', label: 'Awaiting review' },
   { value: 'ACTIVE', label: 'Active' },
   { value: 'REJECTED', label: 'Rejected' },
   { value: 'SUSPENDED', label: 'Suspended' },
@@ -46,13 +46,14 @@ const FILTERS: { value: StatusFilter; label: string }[] = [
 interface DialogTarget {
   user: UserView;
   mode: 'review' | 'roles';
+  initialTab?: 'approve' | 'reject';
 }
 
 export function AdminUsersPage() {
   usePageTitle('Users');
   const [params, setParams] = useSearchParams();
-  const status = FILTERS.find(({ value }) => value === params.get('status'))?.value ?? 'ALL';
-  const setStatus = (value: StatusFilter) => setParams(value === 'ALL' ? {} : { status: value });
+  const status = FILTERS.find(({ value }) => value === params.get('status'))?.value ?? 'PENDING_APPROVAL';
+  const setStatus = (value: StatusFilter) => setParams({ status: value });
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
   const [offset, setOffset] = useState(0);
@@ -118,10 +119,7 @@ export function AdminUsersPage() {
 
   return (
     <>
-      <PageHeader
-        title="User accounts"
-        description="Review registrations, assign roles and manage account access."
-      />
+      <PageHeader title="User accounts" />
 
       {users.isError && (
         <div className="page-alert">
@@ -223,111 +221,36 @@ export function AdminUsersPage() {
           />
         ) : (
           <>
-            <div className={`table-scroll ${users.isFetching ? 'is-refreshing' : ''}`}>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Account</th>
-                    <th scope="col">Department</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Roles</th>
-                    <th scope="col">Registered</th>
-                    <th scope="col">
-                      <span className="sr-only">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {result?.users.map((account) => (
-                    <tr key={account.id}>
-                      <td data-label="Account">
-                        <div className="user-cell">
-                          <Avatar
-                            firstName={account.firstName}
-                            lastName={account.lastName}
-                            size="md"
-                          />
-                          <div>
-                            <strong>
-                              {account.firstName} {account.lastName}
-                            </strong>
-                            <span>{account.email}</span>
-                          </div>
-                        </div>
-                      </td>
-                      <td data-label="Department">
-                        <span className="department-tag">{account.department.code}</span>
-                        <span className="department-name">{account.department.name}</span>
-                      </td>
-                      <td data-label="Status">
-                        <StatusBadge status={account.status} />
-                        {account.status === 'REJECTED' && account.statusReason && (
-                          <span className="status-reason" title={account.statusReason}>
-                            {account.statusReason}
-                          </span>
-                        )}
-                      </td>
-                      <td data-label="Roles">
-                        {account.roles.length === 0 ? (
-                          <span className="muted-dash">Not assigned</span>
-                        ) : (
-                          <span className="role-stack">
-                            {account.roles.map((entry) => (
-                              <RoleBadge
-                                key={`${entry.role}-${entry.departmentId ?? 'college'}`}
-                                role={entry.role}
-                              />
-                            ))}
-                          </span>
-                        )}
-                      </td>
-                      <td data-label="Registered">
-                        <span className="date-cell">{formatDate(account.createdAt)}</span>
-                      </td>
-                      <td className="table-actions">
-                        {account.status === 'PENDING_APPROVAL' ? (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => setTarget({ user: account, mode: 'review' })}
-                          >
-                            Review
-                          </Button>
-                        ) : account.status === 'ACTIVE' ? (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setTarget({ user: account, mode: 'roles' })}
-                            >
-                              Manage access
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setSuspendTarget(account)}
-                            >
-                              Suspend
-                            </Button>
-                          </>
-                        ) : account.status === 'SUSPENDED' ? (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            loading={reactivate.isPending && reactivate.variables === account.id}
-                            onClick={() => reactivate.mutate(account.id)}
-                          >
-                            Reactivate
-                          </Button>
-                        ) : (
-                          <span className="muted-dash">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="product-grid admin-cards" aria-busy={users.isFetching}>
+              {result?.users.map((account) => (
+                <article key={account.id} className="product-panel admin-record">
+                  <div className="user-cell">
+                    <Avatar firstName={account.firstName} lastName={account.lastName} size="md" />
+                    <div><strong>{account.firstName} {account.lastName}</strong><span>{account.email}</span></div>
+                  </div>
+                  <div className="product-heading-row"><StatusBadge status={account.status} />
+                    <span>{formatDate(account.createdAt)}</span></div>
+                  <p>{account.department.name}</p>
+                  {account.roles.length > 0 && <div className="role-stack">
+                    {account.roles.map((entry) => <RoleBadge key={`${entry.role}-${entry.departmentId ?? 'college'}`} role={entry.role} />)}
+                  </div>}
+                  {account.statusReason && <p>{account.statusReason}</p>}
+                  <div className="product-actions">
+                    {account.status === 'PENDING_APPROVAL' && <>
+                      <Button size="sm" onClick={() => setTarget({ user: account, mode: 'review' })}>Review and approve</Button>
+                      <Button size="sm" variant="danger-ghost" onClick={() => setTarget({ user: account, mode: 'review', initialTab: 'reject' })}>Reject</Button>
+                    </>}
+                    {account.status === 'ACTIVE' && <>
+                      <Button size="sm" variant="secondary" onClick={() => setTarget({ user: account, mode: 'roles' })}>Manage access</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setSuspendTarget(account)}>Suspend</Button>
+                    </>}
+                    {account.status === 'SUSPENDED' && <Button size="sm" variant="secondary"
+                      loading={reactivate.isPending && reactivate.variables === account.id} onClick={() => reactivate.mutate(account.id)}>Reactivate</Button>}
+                  </div>
+                </article>
+              ))}
             </div>
+            {reactivate.error && <Alert tone="danger" title={reactivate.error.message} />}
 
             <footer className="table-foot">
               <p>
@@ -364,6 +287,7 @@ export function AdminUsersPage() {
         <UserReviewDialog
           user={target.user}
           mode={target.mode}
+          initialTab={target.initialTab}
           onClose={() => setTarget(null)}
         />
       )}

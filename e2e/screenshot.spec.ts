@@ -121,18 +121,18 @@ test('capture rendered workspaces with booking data', async ({ browser, baseURL 
     }
 
     if (process.env.VENUE_CAPTURE === 'baseline') {
-      await capture(adminPage, 'desktop-approvals', '/approvals', 'Approval inbox', '.queue-table tbody tr');
+      await capture(adminPage, 'desktop-approvals', '/approvals', 'Approvals', '.approval-card');
       await adminPage.setViewportSize({ width: 390, height: 844 });
-      await capture(adminPage, 'mobile-approvals', '/approvals', 'Approval inbox', '.queue-table tbody tr');
+      await capture(adminPage, 'mobile-approvals', '/approvals', 'Approvals', '.approval-card');
       return;
     }
 
-    await capture(adminPage, 'desktop-admin', '/admin', /overview/i, '.review-row');
-    await capture(adminPage, 'desktop-approvals', '/approvals', 'Approval inbox', '.queue-table tbody tr');
-    await capture(adminPage, 'desktop-approval-detail', detailPath, 'Robotics project showcase', '.comparison-grid');
+    await capture(adminPage, 'desktop-admin', '/admin', 'Administration', '.admin-list-item');
+    await capture(adminPage, 'desktop-approvals', '/approvals', 'Approvals', '.approval-card');
+    await capture(adminPage, 'desktop-approval-detail', detailPath, 'Robotics project showcase', '.approval-facts');
     await adminPage.goto(`${origin}${readyPath}`);
-    await adminPage.getByRole('button', { name: 'Allot Venue' }).click();
-    await expect(adminPage.getByRole('dialog', { name: 'Allot Venue' })).toBeVisible();
+    await adminPage.getByRole('button', { name: 'Confirm allotment' }).click();
+    await expect(adminPage.getByRole('dialog', { name: 'Confirm allotment' })).toBeVisible();
     await adminPage.screenshot({ path: testInfo.outputPath('desktop-allotment.png'), animations: 'disabled' });
 
     const approvalStages = [
@@ -175,7 +175,7 @@ test('capture rendered workspaces with booking data', async ({ browser, baseURL 
       const person = await createUser(firstName, 'Menon', role);
       await reviewer.clearCookies();
       await signIn(reviewer, person);
-      await capture(viewer, `desktop-${role.toLowerCase()}`, '/home', new RegExp(firstName), 'a:has-text("Capstone project review")');
+      await capture(viewer, `desktop-${role.toLowerCase()}`, '/home', 'What are you planning?', '.home-action');
       await expect(viewer.getByRole('link', { name: /Capstone project review/ })).toBeVisible();
       await call(reviewer, origin, `/approvals/${reviewRequest.id}/decision`, {
         method: 'POST',
@@ -183,27 +183,27 @@ test('capture rendered workspaces with booking data', async ({ browser, baseURL 
       });
     }
     const studentPage = await student.newPage();
-    await capture(studentPage, 'desktop-student-home', '/home', /Anika/, '.workspace-rows li');
-    await capture(studentPage, 'desktop-venues', '/venues', /Find the right space/, '.venue-results li');
-    await capture(studentPage, 'desktop-venue', `/venues/${auditorium.id}?date=${day}`, 'Main Auditorium', '.calendar-selection .calendar-day-entry');
-    await capture(studentPage, 'desktop-my-events', '/my-events', 'My events', '.event-card h2');
+    await capture(studentPage, 'desktop-student-home', '/home', 'What are you planning?', '.booking-card');
+    await capture(studentPage, 'desktop-venues', '/venues', 'Find your next space.', '.catalog-card');
+    await capture(studentPage, 'desktop-venue', `/venues/${auditorium.id}?date=${day}`, 'Main Auditorium', '.time-grid button');
+    await capture(studentPage, 'desktop-bookings', '/bookings', 'My bookings', '.booking-card');
     const facultyPage = await faculty.newPage();
-    await capture(facultyPage, 'desktop-endorsements', '/approvals', 'Faculty endorsements', '.queue-table tbody tr');
-    await capture(facultyPage, 'desktop-faculty-home', '/home', /Leena/, '.workspace-rows li');
-    await capture(adminPage, 'desktop-users', '/admin/users', 'User accounts', '.data-table tbody tr');
-    await capture(adminPage, 'desktop-admin-venues', '/admin/venues', 'Manage venues', '.data-table tbody tr');
-    await capture(adminPage, 'desktop-workflows', '/admin/workflows', 'Approval workflows', '.workflow-record');
-    await capture(adminPage, 'desktop-departments', '/admin/departments', 'Departments', '.data-table tbody tr');
+    await capture(facultyPage, 'desktop-endorsements', '/approvals', 'Approvals', '.approval-card');
+    await capture(facultyPage, 'desktop-faculty-home', '/home', 'What are you planning?', '.booking-card');
+    await capture(adminPage, 'desktop-users', '/admin/users', 'User accounts', '.admin-record');
+    await capture(adminPage, 'desktop-admin-venues', '/admin/venues', 'Manage venues', '.admin-record');
+    await capture(adminPage, 'desktop-workflows', '/admin/workflows', 'Approval steps', '.workflow-record');
+    await capture(adminPage, 'desktop-departments', '/admin/departments', 'Departments', '.admin-list-item');
     await adminPage.setViewportSize({ width: 834, height: 1112 });
-    await capture(adminPage, 'tablet-approvals', '/approvals', 'Approval inbox', '.queue-table tbody tr');
+    await capture(adminPage, 'tablet-approvals', '/approvals', 'Approvals', '.approval-card');
     await adminPage.setViewportSize({ width: 390, height: 844 });
-    await capture(adminPage, 'mobile-approvals', '/approvals', 'Approval inbox', '.queue-table tbody tr');
+    await capture(adminPage, 'mobile-approvals', '/approvals', 'Approvals', '.approval-card');
     await studentPage.setViewportSize({ width: 390, height: 844 });
-    await capture(studentPage, 'mobile-student-home', '/home', /Anika/, '.workspace-rows li');
-    await capture(studentPage, 'mobile-venue', `/venues/${auditorium.id}?date=${day}`, 'Main Auditorium', '.calendar-selection .calendar-day-entry');
-    await studentPage.getByRole('link', { name: 'Request this venue' }).click();
-    await expect(studentPage.getByRole('heading', { name: 'Plan your event' })).toBeInViewport();
-    await expect(studentPage.getByLabel('Event title')).toBeInViewport();
+    await capture(studentPage, 'mobile-student-home', '/home', 'What are you planning?', '.booking-card');
+    await capture(studentPage, 'mobile-venue', `/venues/${auditorium.id}?date=${day}`, 'Main Auditorium', '.time-grid button');
+    await studentPage.getByRole('group', { name: 'Hourly time slots' }).getByRole('button', { name: /Open/ }).first().click();
+    await studentPage.getByRole('heading', { name: 'Booking details' }).scrollIntoViewIfNeeded();
+    await expect(studentPage.getByRole('button', { name: 'Request venue' })).toBeInViewport();
     await studentPage.screenshot({ path: testInfo.outputPath('mobile-booking.png'), animations: 'disabled' });
     await capture(studentPage, 'mobile-account', '/account', 'My account', '.profile-details');
   } finally {

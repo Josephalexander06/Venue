@@ -10,6 +10,7 @@ interface ApprovalDecisionDialogProps {
   updatedAt: string;
   stepName: string;
   allowApproval: boolean;
+  initialDecision?: ApprovalDecision;
   onClose: () => void;
   onSuccess?: () => void;
 }
@@ -19,10 +20,11 @@ export function ApprovalDecisionDialog({
   updatedAt,
   stepName,
   allowApproval,
+  initialDecision,
   onClose,
   onSuccess,
 }: ApprovalDecisionDialogProps) {
-  const [decision, setDecision] = useState<ApprovalDecision>(allowApproval ? 'APPROVED' : 'CHANGES_REQUESTED');
+  const [decision, setDecision] = useState<ApprovalDecision>(initialDecision ?? (allowApproval ? 'APPROVED' : 'CHANGES_REQUESTED'));
   const [comments, setComments] = useState('');
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
@@ -37,6 +39,7 @@ export function ApprovalDecisionDialog({
     onError: (error) => {
       if (error instanceof ApiError && error.code === 'APPROVAL_STATE_CHANGED') {
         void queryClient.invalidateQueries({ queryKey: ['approval', requestId] });
+        void queryClient.invalidateQueries({ queryKey: ['approvals'] });
       }
     },
     onSuccess: async (data) => {
@@ -45,6 +48,9 @@ export function ApprovalDecisionDialog({
         queryClient.invalidateQueries({ queryKey: ['approval', requestId] }),
         queryClient.invalidateQueries({ queryKey: ['my-events'] }),
         queryClient.invalidateQueries({ queryKey: ['venue-calendar'] }),
+        queryClient.invalidateQueries({ queryKey: ['venue-schedule'] }),
+        queryClient.invalidateQueries({ queryKey: ['venue-availability'] }),
+        queryClient.invalidateQueries({ queryKey: ['request', requestId] }),
       ]);
       pushToast({
         tone: decision === 'APPROVED' ? 'success' : decision === 'REJECTED' ? 'danger' : 'info',

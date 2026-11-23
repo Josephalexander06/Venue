@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { VENUE_STATUSES, VENUE_STATUS_LABELS, type VenueStatus } from '@venue/shared';
 import type { Venue } from '../lib/api';
 import { api, ApiError, fieldError } from '../lib/api';
 import {
@@ -31,7 +32,7 @@ export function VenueDialog({ venue, departments, onClose }: VenueDialogProps) {
   const [facilities, setFacilities] = useState(venue?.facilities.join(', ') ?? '');
   const [setupBufferMins, setSetupBufferMins] = useState(String(venue?.setupBufferMins ?? 30));
   const [teardownBufferMins, setTeardownBufferMins] = useState(String(venue?.teardownBufferMins ?? 30));
-  const [isActive, setIsActive] = useState(venue?.isActive ?? true);
+  const [status, setStatus] = useState<VenueStatus>(venue?.status ?? 'ACTIVE');
 
   const workflowsQuery = useQuery({
     queryKey: ['workflows'],
@@ -52,7 +53,8 @@ export function VenueDialog({ venue, departments, onClose }: VenueDialogProps) {
           .filter(Boolean),
         setupBufferMins: Number(setupBufferMins),
         teardownBufferMins: Number(teardownBufferMins),
-        isActive,
+        isActive: status === 'ACTIVE',
+        status,
         departmentId: departmentId || null,
         workflowId: workflowId || undefined,
       };
@@ -64,6 +66,7 @@ export function VenueDialog({ venue, departments, onClose }: VenueDialogProps) {
         queryClient.invalidateQueries({ queryKey: ['venues'] }),
         queryClient.invalidateQueries({ queryKey: ['venue'] }),
         queryClient.invalidateQueries({ queryKey: ['venue-calendar'] }),
+        queryClient.invalidateQueries({ queryKey: ['venue-schedule'] }),
       ]);
       pushToast({
         tone: 'success',
@@ -225,18 +228,10 @@ export function VenueDialog({ venue, departments, onClose }: VenueDialogProps) {
           />
         </div>
 
-        <div className="checkbox-field">
-          <input
-            id="venue-active"
-            type="checkbox"
-            checked={isActive}
-            onChange={(event) => setIsActive(event.target.checked)}
-          />
-          <label htmlFor="venue-active">
-            <strong>Available for booking</strong>
-            <span>Archived venues stay in history but cannot receive new requests.</span>
-          </label>
-        </div>
+        <SelectField label="Status" name="venue-status" value={status}
+          onChange={(event) => setStatus(event.target.value as VenueStatus)}>
+          {VENUE_STATUSES.map((item) => <option key={item} value={item}>{VENUE_STATUS_LABELS[item]}</option>)}
+        </SelectField>
 
         {save.isError && (
           <Alert tone="danger" title="Could not save venue">

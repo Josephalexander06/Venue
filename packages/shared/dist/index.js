@@ -53,23 +53,25 @@ export const registrationSchema = z
         .regex(/^[+0-9 ()-]*$/, 'Use digits, spaces and + ( ) - only.')
         .optional()
         .or(z.literal('')),
-    departmentId: z.string().uuid('Choose your department.'),
+    departmentId: z.string().uuid('Choose your department.').optional(),
 })
     .refine((data) => !data.password.toLowerCase().includes(data.email.split('@')[0] ?? ''), {
     message: 'Password must not contain your email name.',
     path: ['password'],
 });
+export const UNASSIGNED_DEPARTMENT_CODE = 'UNASSIGNED';
 export const roleAssignmentSchema = z.object({
     role: z.enum(ROLE_NAMES),
     departmentId: z.string().uuid().nullable().optional(),
 });
 export const approveUserSchema = z.object({
+    departmentId: z.string().uuid().optional(),
     roles: z.array(roleAssignmentSchema).min(1, 'Assign at least one role.').max(10),
 });
 export const rejectUserSchema = z.object({
     reason: z.string().trim().min(5, 'Give a brief reason (at least 5 characters).').max(500),
 });
-export const updateUserRolesSchema = approveUserSchema;
+export const updateUserRolesSchema = approveUserSchema.pick({ roles: true });
 export const suspendUserSchema = z.object({
     reason: z.string().trim().min(5, 'Give a brief reason (at least 5 characters).').max(500),
 });
@@ -77,6 +79,12 @@ export const suspendUserSchema = z.object({
 export const MAX_FACILITY_LENGTH = 40;
 export const MAX_FACILITIES = 20;
 const facilitySchema = z.string().trim().min(1).max(MAX_FACILITY_LENGTH);
+export const VENUE_STATUSES = ['ACTIVE', 'MAINTENANCE', 'DECOMMISSIONED'];
+export const VENUE_STATUS_LABELS = {
+    ACTIVE: 'Active',
+    MAINTENANCE: 'Maintenance',
+    DECOMMISSIONED: 'Decommissioned',
+};
 export const venueInputSchema = z.object({
     code: z
         .string()
@@ -97,6 +105,7 @@ export const venueInputSchema = z.object({
     setupBufferMins: z.coerce.number().int().min(0).max(240).default(30),
     teardownBufferMins: z.coerce.number().int().min(0).max(240).default(30),
     isActive: z.boolean().default(true),
+    status: z.enum(VENUE_STATUSES).optional(),
     departmentId: z.string().uuid().nullable().optional(),
     workflowId: z.string().uuid().optional(),
 });
@@ -109,6 +118,7 @@ export const venueListQuerySchema = z.object({
     departmentId: z.string().uuid().optional(),
     minCapacity: z.coerce.number().int().min(1).optional(),
     active: z.enum(['true', 'false']).optional(),
+    status: z.enum(VENUE_STATUSES).optional(),
     limit: z.coerce.number().int().min(1).max(100).default(50),
     offset: z.coerce.number().int().min(0).default(0),
 });
@@ -212,6 +222,7 @@ export const approvalDecisionInputSchema = z
     }
 });
 export const approvalInboxQuerySchema = z.object({
+    view: z.enum(['pending', 'decided', 'all']).optional(),
     limit: z.coerce.number().int().min(1).max(50).default(25),
     offset: z.coerce.number().int().min(0).default(0),
 });
@@ -268,11 +279,17 @@ export const allotmentInboxQuerySchema = z.object({
 });
 /* --------------------------------------------------------- venue requests */
 const isoTimestamp = z.iso.datetime({ offset: true, message: 'Use an ISO timestamp with a timezone.' });
+export const DEFAULT_BOOKING_TITLE = 'Room reservation';
 export const venueRequestInputSchema = z.object({
-    eventId: z.string().uuid(),
+    idempotencyKey: z.string().uuid().optional(),
+    eventId: z.string().uuid().optional(),
+    event: eventInputSchema.omit({ departmentId: true }).partial({ title: true }).optional(),
     venueId: z.string().uuid(),
     startTime: isoTimestamp,
     endTime: isoTimestamp,
+}).refine(({ eventId, event }) => !eventId || !event, {
+    path: ['event'],
+    message: 'Choose an existing event or provide new event details.',
 });
 export const venueRequestUpdateSchema = z
     .object({

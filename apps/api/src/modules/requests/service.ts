@@ -1,5 +1,7 @@
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { DEFAULT_BOOKING_TITLE } from '@venue/shared';
 import type {
+  VenueRequestInput,
   ApprovalDecision,
   RequestStatus,
   RoleName,
@@ -34,7 +36,7 @@ import {
   type EventSummary,
   type RequestRow,
 } from './view.js';
-import { isEventCollaborator } from '../events/service.js';
+import { insertEvent, isEventCollaborator } from '../events/service.js';
 
 interface Viewer {
   userId: string;
@@ -50,6 +52,7 @@ const OPEN_REQUEST_STATUSES = ['SUBMITTED', 'IN_REVIEW', 'APPROVED_PENDING_ALLOT
 
 interface RequestDetailRow extends RequestRow {
   creatorId: string;
+  submittedByName: string;
   facultyCoordinatorId: string | null;
   title: string;
   description: string | null;
@@ -66,6 +69,7 @@ interface RequestDetailRow extends RequestRow {
 const requestDetailSelection = {
   ...requestSelection,
   creatorId: events.creatorId,
+  submittedByName: sql<string>`(select concat_ws(' ', ${users.firstName}, ${users.lastName}) from ${users} where ${users.id} = ${venueRequests.submittedById})`,
   facultyCoordinatorId: events.facultyCoordinatorId,
   title: events.title,
   description: events.description,
@@ -83,6 +87,8 @@ function eventSummary(row: RequestDetailRow): EventSummary {
   return {
     id: row.eventId,
     title: row.title,
+    creatorId: row.creatorId,
+    submittedByName: row.submittedByName,
     description: row.description,
     expectedAttendance: row.expectedAttendance,
     status: row.eventStatus,
@@ -627,26 +633,32 @@ export async function loadBookingWorkflow(db: DbExecutor, venue: { workflowId: s
 
 export async function createVenueRequest(
   db: Database,
-  viewer: Viewer,
-  input: { eventId: string; venueId: string; startTime: string; endTime: string },
+  viewer: Viewer & { departmentId: string },
+  input: VenueRequestInput,
   context: RequestContext,
 ) {
   const start = parseInstant(input.startTime, 'start time');
   const end = parseInstant(input.endTime, 'end time');
 
   const requestId = await db.transaction(async (tx) => {
-    const [event] = await tx
-      .select({
-        id: events.id,
-        creatorId: events.creatorId,
-        facultyCoordinatorId: events.facultyCoordinatorId,
-        status: events.status,
-        expectedAttendance: events.expectedAttendance,
-      })
-      .from(events)
-      .where(eq(events.id, input.eventId))
-      .for('update')
-      .limit(1);
+    if (input.idempotencyKey) {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`venue-request:${input.idempotencyKey}`}, 0))`);
+      const [previous] = await tx.select().from(venueRequests).where(eq(venueRequests.id, input.idempotencyKey)).limit(1);
+      if (previous) {
+        if (previous.submittedById === viewer.userId && previous.venueId === input.venueId &&
+          previous.startTime.getTime() === start.getTime() && previous.endTime.getTime() === end.getTime() &&
+          (!input.eventId || previous.eventId === input.eventId)) return previous.id;
+        throw new AppError(409, 'REQUEST_KEY_USED', 'This booking attempt has already been used.');
+      }
+    }
+    assertBookingInterval(start, end);
+    const [event] = input.eventId
+      ? await tx.select().from(events).where(eq(events.id, input.eventId)).for('update').limit(1)
+      : [await insertEvent(tx, viewer, {
+          ...input.event,
+          title: input.event?.title ?? DEFAULT_BOOKING_TITLE,
+          expectedAttendance: input.event?.expectedAttendance ?? 1,
+        }, context)];
     if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Event not found.');
 
     const isOrganizer = await isEventCollaborator(tx, event.id, viewer.userId);
@@ -691,7 +703,6 @@ export async function createVenueRequest(
       }
     }
 
-    assertBookingInterval(start, end);
     const venue = await loadVenueForBooking(tx, input.venueId);
     if (event.expectedAttendance > venue.capacity) {
       throw new AppError(
@@ -737,6 +748,7 @@ export async function createVenueRequest(
     const [created] = await tx
       .insert(venueRequests)
       .values({
+        id: input.idempotencyKey,
         eventId: event.id,
         submittedById: viewer.userId,
         requiresFacultyEndorsement,

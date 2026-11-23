@@ -244,8 +244,8 @@ async function validateFacultyCoordinator(db: DbExecutor, coordinatorId: string)
   }
 }
 
-export async function createEvent(
-  db: Database,
+export async function insertEvent(
+  db: DbExecutor,
   viewer: Viewer & { departmentId: string },
   input: EventInput,
   context: { ipAddress?: string; userAgent?: string },
@@ -255,42 +255,42 @@ export async function createEvent(
     throw new AppError(403, 'DEPARTMENT_FORBIDDEN', 'Create events in your own department.');
   }
   await requireDepartment(db, departmentId);
+  if (input.facultyCoordinatorId) await validateFacultyCoordinator(db, input.facultyCoordinatorId);
 
-  if (input.facultyCoordinatorId) {
-    await validateFacultyCoordinator(db, input.facultyCoordinatorId);
-  }
+  const [event] = await db.insert(events).values({
+    title: input.title,
+    description: input.description || null,
+    expectedAttendance: input.expectedAttendance,
+    departmentId,
+    creatorId: viewer.userId,
+    facultyCoordinatorId: input.facultyCoordinatorId || null,
+  }).returning();
+  if (!event) throw new Error('Event insert returned no row.');
 
-  const eventId = await db.transaction(async (tx) => {
-    const [created] = await tx
-      .insert(events)
-      .values({
-        title: input.title,
-        description: input.description || null,
-        expectedAttendance: input.expectedAttendance,
-        departmentId,
-        creatorId: viewer.userId,
-        facultyCoordinatorId: input.facultyCoordinatorId || null,
-      })
-      .returning({ id: events.id });
-    if (!created) throw new Error('Event insert returned no row.');
-
-    await writeAudit(tx, {
-      actorId: viewer.userId,
-      action: 'EVENT_CREATED',
-      entityName: 'events',
-      entityId: created.id,
-      newState: {
-        title: input.title,
-        expectedAttendance: input.expectedAttendance,
-        facultyCoordinatorId: input.facultyCoordinatorId || null,
-      },
-      ipAddress: context.ipAddress,
-      userAgent: context.userAgent,
-    });
-    return created.id;
+  await writeAudit(db, {
+    actorId: viewer.userId,
+    action: 'EVENT_CREATED',
+    entityName: 'events',
+    entityId: event.id,
+    newState: {
+      title: event.title,
+      expectedAttendance: event.expectedAttendance,
+      facultyCoordinatorId: event.facultyCoordinatorId,
+    },
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent,
   });
+  return event;
+}
 
-  return getEventView(db, eventId, viewer);
+export async function createEvent(
+  db: Database,
+  viewer: Viewer & { departmentId: string },
+  input: EventInput,
+  context: { ipAddress?: string; userAgent?: string },
+) {
+  const event = await db.transaction((tx) => insertEvent(tx, viewer, input, context));
+  return getEventView(db, event.id, viewer);
 }
 
 export async function updateEvent(

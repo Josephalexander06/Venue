@@ -1,76 +1,106 @@
-import { useQuery } from '@tanstack/react-query';
-import { Link, useLocation, useParams } from 'react-router-dom';
-import type { RequestStatus } from '@venue/shared';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useParams } from 'react-router-dom';
+import { ArrowLeft, ArrowRight, CalendarBlank, Check, Clock, PencilSimple, Users, X } from '@phosphor-icons/react';
+import { DEFAULT_BOOKING_TITLE } from '@venue/shared';
 import { usePageTitle } from '../auth';
-import { ApprovalTimeline } from '../components/approvals/ApprovalTimeline';
-import { RequestStatusBadge } from '../components/booking';
-import { Alert, PageHeader, Skeleton } from '../components/ui';
-import { api, ApiError } from '../lib/api';
-import { formatTimeRange } from '../lib/datetime';
+import { BookingProgress } from '../components/BookingCard';
+import { EventTeamDialog } from '../components/EventTeamDialog';
+import { Alert, Button, Dialog, Skeleton, useToast } from '../components/ui';
+import { api, type RequestDetailView } from '../lib/api';
 import { formatDate } from '../lib/format';
+import { displaySlot } from '../lib/slot-schedule';
 
-const statusMessage: Record<RequestStatus, string> = {
-  SUBMITTED: 'Your request is awaiting review. The venue is reserved once allotment is confirmed.',
-  IN_REVIEW: 'The approval workflow is in progress. The venue is reserved once allotment is confirmed.',
-  APPROVED_PENDING_ALLOTMENT: 'Approval is complete. The venue is awaiting final allotment.',
-  CONFIRMED: 'Your venue is reserved for the dates and times below.',
-  REJECTED: 'The reviewer declined this request.',
-  SUPERSEDED_CONFLICT: 'The venue was allotted to another event. You can choose a new slot in My events.',
-  CANCELLED: 'This booking request is closed.',
-};
+function BookingTracker({ detail }: { detail: RequestDetailView }) {
+  const { request, timeline, allotment } = detail;
+  const confirmed = request.status === 'CONFIRMED';
+  const steps = [
+    { label: 'Submitted', state: 'done', when: request.createdAt },
+    ...timeline.filter((item) => !(confirmed && item.isFinalAllotmentStep)).map((item) => ({
+      label: item.stepOrder === 0 ? 'Faculty endorsement' : item.stepName,
+      state: item.state === 'APPROVED' ? 'done' : item.state === 'REJECTED' || item.state === 'CHANGES_REQUESTED'
+        ? 'closed' : item.state === 'CURRENT' ? 'current' : 'waiting',
+      when: item.decision?.decidedAt,
+    })),
+    { label: 'Confirmed', state: confirmed ? 'done' : request.status === 'APPROVED_PENDING_ALLOTMENT' ? 'current' : 'waiting', when: allotment?.createdAt },
+  ];
+  return <ol className="booking-tracker">{steps.map(({ label, state, when }, index) => (
+    <li key={`${label}-${index}`} className={`tracker-${state}`} aria-current={state === 'current' ? 'step' : undefined}>
+      <span className="tracker-marker" aria-hidden="true">{state === 'done' ? <Check size={15} weight="bold" />
+        : state === 'closed' ? <X size={15} weight="bold" /> : state === 'current' ? <Clock size={15} weight="bold" /> : null}</span>
+      <strong>{label}</strong>
+      <span>{when ? formatDate(when) : state === 'current' ? 'In progress' : '—'}</span>
+    </li>
+  ))}</ol>;
+}
 
 export function BookingStatusPage() {
-  const { id } = useParams<{ id: string }>();
-  const { state } = useLocation();
-  const query = useQuery({
-    queryKey: ['request', id],
-    queryFn: () => api.requestDetail(id!),
-    enabled: Boolean(id),
+  const { id = '' } = useParams();
+  const queryClient = useQueryClient();
+  const { pushToast } = useToast();
+  const [cancelling, setCancelling] = useState(false);
+  const [showTeam, setShowTeam] = useState(false);
+  const booking = useQuery({ queryKey: ['request', id], queryFn: () => api.requestDetail(id), refetchInterval: 30_000 });
+  const detail = booking.data;
+  usePageTitle(detail?.request.venue.name ?? 'Booking');
+
+  const cancel = useMutation({
+    mutationFn: () => api.cancelRequest(id),
+    onSuccess: () => {
+      for (const key of ['request', 'my-events', 'venue-schedule', 'venue-calendar', 'venue-availability', 'approvals', 'approval']) {
+        void queryClient.invalidateQueries({ queryKey: [key] });
+      }
+      pushToast({ tone: 'success', title: 'Booking cancelled' });
+      setCancelling(false);
+    },
   });
-  const detail = query.data;
-  const confirmed = detail?.request.status === 'CONFIRMED';
-  const submitted = state?.submitted &&
-    (detail?.request.status === 'SUBMITTED' || detail?.request.status === 'IN_REVIEW');
-  const title = confirmed ? 'Booking confirmed' : submitted ? 'Booking request submitted' : 'Booking status';
-  usePageTitle(title);
 
-  const backToEvents = detail
-    ? `/my-events?highlight=${detail.request.id}#event-${detail.event.id}`
-    : '/my-events';
-
-  return (
-    <div className="booking-status-page">
-      <PageHeader title={title} description={detail && statusMessage[detail.request.status]}
-        actions={<Link className="btn btn-secondary btn-md" to={backToEvents}>Manage in My events</Link>} />
-      {query.isPending ? <Skeleton className="skeleton-block" /> : query.isError || !detail ? (
-        <Alert tone="danger" title="Could not load booking">
-          {query.error instanceof ApiError ? query.error.message : 'Check your connection and try again.'}
-          {' '}<button className="inline-link" type="button" onClick={() => void query.refetch()}>Try again</button>
-        </Alert>
-      ) : (
-        <>
-          <section className="allotment-review" aria-label="Booking details">
-            <RequestStatusBadge status={detail.request.status} />
-            <h2>{detail.event.title}</h2>
-            <dl>
-              <div><dt>Venue</dt><dd>{detail.request.venue.name} · {detail.request.venue.building}</dd></div>
-              <div><dt>Date and time</dt><dd>{formatDate(detail.request.startTime)} · {formatTimeRange(detail.request.startTime, detail.request.endTime)}</dd></div>
-              {confirmed && (
-                <div><dt>Reserved window</dt><dd>{formatTimeRange(detail.request.effectiveStart, detail.request.effectiveEnd)} including setup and cleanup</dd></div>
-              )}
-              <div><dt>Request reference</dt><dd className="booking-reference">{detail.request.id}</dd></div>
-              {confirmed && detail.allotment?.status === 'ACTIVE' && (
-                <div><dt>Confirmed on</dt><dd>{formatDate(detail.allotment.createdAt)}</dd></div>
-              )}
-            </dl>
-          </section>
-          {detail.request.rejectionReason && (
-            <Alert tone="warning" title="Reviewer update">{detail.request.rejectionReason}</Alert>
-          )}
-          <ApprovalTimeline timeline={detail.timeline} decisions={detail.decisions}
-            currentRound={detail.currentRound} status={detail.request.status} />
-        </>
-      )}
-    </div>
-  );
+  return <div className="product-page booking-status-page">
+    <Link className="text-link back-link" to="/bookings"><ArrowLeft size={18} /> My bookings</Link>
+    {booking.isError && <Alert tone="danger" title="Could not load booking">
+      <button className="inline-link" type="button" onClick={() => void booking.refetch()}>Try again</button>
+    </Alert>}
+    {booking.isPending && <Skeleton className="detail-skeleton" />}
+    {detail && <>
+      <div className="product-page-heading">
+        <div>
+          <h1>{detail.request.venue.name}</h1>
+          <div className="catalog-meta">
+            <span><CalendarBlank size={18} aria-hidden="true" />{formatDate(detail.request.startTime)} · {displaySlot(detail.request.startTime, detail.request.endTime)}</span>
+            <span><Users size={19} aria-hidden="true" />{detail.event.expectedAttendance} attendees</span>
+          </div>
+        </div>
+        <BookingProgress request={detail.request} />
+      </div>
+      <section className="product-panel tracker-panel"><h2>Progress</h2><BookingTracker detail={detail} /></section>
+      {detail.request.rejectionReason && <Alert tone="warning" title="Booking update">{detail.request.rejectionReason}</Alert>}
+      <details className="product-panel product-disclosure">
+        <summary>Booking details</summary>
+        <div className="status-details">
+          {detail.event.title !== DEFAULT_BOOKING_TITLE && <strong>{detail.event.title}</strong>}
+          {detail.event.description && <p>{detail.event.description}</p>}
+          <p>{detail.event.department.name}</p>
+          <Button variant="secondary" onClick={() => setShowTeam(true)}>Event team <ArrowRight size={17} /></Button>
+        </div>
+      </details>
+      {detail.conflicts.pending.length > 0 && <details className="product-panel product-disclosure">
+        <summary>Show competing requests</summary>
+        <p className="status-details">{detail.conflicts.pending.length} other {detail.conflicts.pending.length === 1 ? 'request overlaps' : 'requests overlap'} this time.</p>
+      </details>}
+      {(detail.permissions.canEdit || detail.permissions.canCancel) && <div className="product-actions">
+        {detail.permissions.canEdit && <Link className="btn btn-secondary btn-lg" to={`/venues/${detail.request.venue.id}?editRequest=${id}`}>
+          <PencilSimple size={19} aria-hidden="true" /> Modify booking
+        </Link>}
+        {detail.permissions.canCancel && <Button variant="danger-ghost" size="lg" onClick={() => { cancel.reset(); setCancelling(true); }}>
+          <X size={19} aria-hidden="true" /> Cancel booking
+        </Button>}
+      </div>}
+      {cancelling && <Dialog open onClose={() => { if (!cancel.isPending) setCancelling(false); }} title="Cancel booking?"
+        description={detail.request.venue.name} footer={<>
+          <Button variant="secondary" onClick={() => setCancelling(false)} disabled={cancel.isPending}>Keep booking</Button>
+          <Button variant="danger" onClick={() => cancel.mutate()} loading={cancel.isPending}>Cancel booking</Button>
+        </>}>{cancel.error && <Alert tone="danger" title={cancel.error.message} />}</Dialog>}
+      {showTeam && <EventTeamDialog event={detail.event} onClose={() => setShowTeam(false)} />}
+    </>}
+  </div>;
 }

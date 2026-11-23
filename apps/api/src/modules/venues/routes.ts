@@ -38,13 +38,13 @@ const bookingVenueListQuery = venueListQuerySchema.extend({
 const venueRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) => {
   const adminOnly = { preHandler: app.requireRole('ADMINISTRATOR' as const) };
 
-  app.get('/venues', { preHandler: app.authenticate }, async (request) => {
+  app.get('/venues', { preHandler: app.authenticateCatalog }, async (request) => {
     const { eventId, from, to, ...query } = parseInput(bookingVenueListQuery, request.query);
     const availableDuring = from && to
       ? { from: parseInstant(from, 'start'), to: parseInstant(to, 'end') }
       : undefined;
     if (availableDuring) assertCalendarWindow(availableDuring.from, availableDuring.to);
-    if (eventId) {
+    if (eventId && request.auth!.user.status === 'ACTIVE') {
       const event = await findEventRow(db, eventId);
       const user = request.auth!.user;
       await assertEventViewAccess(db, event, {
@@ -56,7 +56,7 @@ const venueRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) =>
     return listVenues(db, { ...query, active: true, availableDuring });
   });
 
-  app.get('/venues/:id', { preHandler: app.authenticate }, async (request) => {
+  app.get('/venues/:id', { preHandler: app.authenticateCatalog }, async (request) => {
     const { id } = parseInput(idParamsSchema, request.params);
     const isAdmin = request.auth!.user.roles.some((entry) => entry.role === 'ADMINISTRATOR');
     return { venue: await requireVenue(db, id, isAdmin) };
@@ -84,6 +84,18 @@ const venueRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) =>
     assertCalendarWindow(from, to);
     const isAdmin = request.auth!.user.roles.some((entry) => entry.role === 'ADMINISTRATOR');
     return getVenueCalendar(db, id, from, to, isAdmin);
+  });
+
+  app.get('/venues/:id/slot-schedule', { preHandler: app.authenticateCatalog }, async (request) => {
+    const { id } = parseInput(idParamsSchema, request.params);
+    const query = parseInput(venueScheduleQuerySchema, request.query);
+    const from = parseInstant(query.from, 'start');
+    const to = parseInstant(query.to, 'end');
+    assertCalendarWindow(from, to);
+    const { entries } = await getVenueCalendar(
+      db, id, new Date(from.getTime() - 4 * 60 * 60_000), new Date(to.getTime() + 4 * 60 * 60_000),
+    );
+    return { entries: entries.map(({ kind, rangeStart, rangeEnd }) => ({ kind, rangeStart, rangeEnd })) };
   });
 
   app.get('/venues/:id/availability', { preHandler: app.authenticate }, async (request) => {

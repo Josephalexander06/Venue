@@ -1,5 +1,5 @@
 import { and, count, eq, inArray, ne } from 'drizzle-orm';
-import { DEPARTMENT_SCOPED_ROLES, type ApproveUserInput } from '@venue/shared';
+import { DEPARTMENT_SCOPED_ROLES, UNASSIGNED_DEPARTMENT_CODE, type ApproveUserInput } from '@venue/shared';
 import type { Database } from '../../db/index.js';
 import { departments, roles, userRoles, users } from '../../db/schema.js';
 import { writeAudit } from '../../lib/audit.js';
@@ -92,10 +92,17 @@ export async function approveUser(
 ) {
   await db.transaction(async (tx) => {
     const target = await requirePendingUser(tx, userId);
-    await replaceRoles(tx, userId, target.departmentId, input.roles);
+    const departmentId = input.departmentId ?? target.departmentId;
+    const [department] = await tx.select({ code: departments.code }).from(departments)
+      .where(eq(departments.id, departmentId)).limit(1);
+    if (!department || department.code === UNASSIGNED_DEPARTMENT_CODE) {
+      throw new AppError(400, 'DEPARTMENT_REQUIRED', 'Assign the user to a department before approving.');
+    }
+    await replaceRoles(tx, userId, departmentId, input.roles);
     await tx
       .update(users)
       .set({
+        departmentId,
         status: 'ACTIVE',
         statusReason: null,
         approvedBy: actor.actorId,
@@ -110,7 +117,7 @@ export async function approveUser(
       entityName: 'users',
       entityId: userId,
       oldState: { status: target.status },
-      newState: { status: 'ACTIVE', roles: input.roles },
+      newState: { status: 'ACTIVE', departmentId, roles: input.roles },
       ipAddress: actor.ipAddress,
       userAgent: actor.userAgent,
     });

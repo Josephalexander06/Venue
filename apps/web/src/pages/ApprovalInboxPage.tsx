@@ -1,262 +1,110 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import {
-  ArrowRight,
-  CaretLeft,
-  CaretRight,
-  CheckCircle,
-  MagnifyingGlass,
-  WarningCircle,
-} from '@phosphor-icons/react';
-import { ROLE_LABELS } from '@venue/shared';
-import { useAuth, usePageTitle } from '../auth';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, ArrowRight, CalendarBlank, Check, CheckCircle, MapPin, WarningCircle } from '@phosphor-icons/react';
+import { usePageTitle } from '../auth';
+import { APPROVAL_PREVIEW_KEY } from '../components/AppShell';
+import { ApprovalDecisionDialog } from '../components/approvals/ApprovalDecisionDialog';
 import { RequestStatusBadge } from '../components/booking';
-import { Alert, Button, EmptyState, PageHeader, Skeleton } from '../components/ui';
+import { Alert, Button, EmptyState, Skeleton, useToast } from '../components/ui';
 import { api, type ApprovalInboxItem } from '../lib/api';
-import { formatTimeRange } from '../lib/datetime';
-import { formatDate } from '../lib/format';
+import { formatShortDay } from '../lib/datetime';
+import { displaySlot } from '../lib/slot-schedule';
 
-const FILTERS = [
-  { id: 'all', label: 'All requests' },
-  { id: 'review', label: 'In review' },
-  { id: 'allotment', label: 'Ready to allot' },
-  { id: 'conflicts', label: 'Overlaps' },
+const PAGE_SIZE = 12;
+const TABS = [
+  { id: 'all', label: 'All' },
+  { id: 'pending', label: 'Needs action' },
+  { id: 'decided', label: 'Decided' },
 ] as const;
-type InboxFilter = (typeof FILTERS)[number]['id'];
-type InboxSort = 'oldest' | 'newest' | 'upcoming';
-
-const PAGE_SIZE = 10;
-const BATCH_SIZE = 50;
-
-function isReady(item: ApprovalInboxItem) {
-  return item.request.status === 'APPROVED_PENDING_ALLOTMENT';
-}
-
-function hasOverlap(item: ApprovalInboxItem) {
-  return item.conflicts.confirmedCount > 0 || item.conflicts.pendingCount > 0;
-}
-
-async function loadInbox(signal: AbortSignal) {
-  // The API pages the role-scoped queue. Read each page so filters and counts cover the full queue.
-  const first = await api.approvalInbox({ limit: BATCH_SIZE }, signal);
-  const items = new Map(first.items.map((item) => [item.request.id, item]));
-  for (let offset = BATCH_SIZE; offset < first.total; offset += BATCH_SIZE) {
-    const batch = await api.approvalInbox({ limit: BATCH_SIZE, offset }, signal);
-    for (const item of batch.items) items.set(item.request.id, item);
-  }
-  return [...items.values()];
-}
 
 export function ApprovalInboxPage() {
-  const { isFacultyOnlyApprover: facultyOnly } = useAuth();
-  const title = facultyOnly ? 'Faculty endorsements' : 'Approval inbox';
-  usePageTitle(title);
-
-  const [filter, setFilter] = useState<InboxFilter>('all');
-  const [search, setSearch] = useState('');
-  const [sort, setSort] = useState<InboxSort>('oldest');
-  const [pageIndex, setPageIndex] = useState(0);
-
+  usePageTitle('Approvals');
+  const client = useQueryClient();
+  const { pushToast } = useToast();
+  const [view, setView] = useState<(typeof TABS)[number]['id']>('pending');
+  const [page, setPage] = useState(0);
+  const [rejecting, setRejecting] = useState<ApprovalInboxItem>();
   const inbox = useQuery({
-    queryKey: ['approvals', 'inbox'],
-    queryFn: ({ signal }) => loadInbox(signal),
+    queryKey: ['approvals', 'inbox', view, page],
+    queryFn: ({ signal }) => api.approvalInbox({ view, limit: PAGE_SIZE, offset: page * PAGE_SIZE }, signal),
     refetchInterval: 30_000,
   });
+  const preview = useQuery({
+    queryKey: APPROVAL_PREVIEW_KEY,
+    queryFn: () => api.approvalInbox({ limit: 3 }),
+    staleTime: 15_000,
+  });
+  const approve = useMutation({
+    mutationFn: ({ request }: ApprovalInboxItem) => api.decideApproval(request.id, {
+      decision: 'APPROVED', expectedUpdatedAt: request.updatedAt,
+    }),
+    onSuccess: (_, item) => {
+      pushToast({ tone: 'success', title: item.step.stepOrder === 0 ? 'Request endorsed' : 'Request approved' });
+      for (const key of ['approvals', 'approval', 'request', 'my-events', 'venue-schedule', 'venue-availability']) {
+        void client.invalidateQueries({ queryKey: [key] });
+      }
+    },
+    onError: (error) => {
+      pushToast({ tone: 'danger', title: 'Could not approve', message: error.message });
+      void inbox.refetch();
+    },
+  });
+  const total = inbox.data?.total ?? 0;
 
-  const { counts, results } = useMemo(() => {
-    const term = search.trim().toLocaleLowerCase();
-    const counts: Record<InboxFilter, number> = { all: 0, review: 0, allotment: 0, conflicts: 0 };
-    const results = (inbox.data ?? []).filter((item) => {
-      const ready = isReady(item);
-      const overlap = hasOverlap(item);
-      counts.all++;
-      counts[ready ? 'allotment' : 'review']++;
-      if (overlap) counts.conflicts++;
-      if (filter === 'review' && ready) return false;
-      if (filter === 'allotment' && !ready) return false;
-      if (filter === 'conflicts' && !overlap) return false;
-      return !term || [
-        item.event.title,
-        item.event.department.name,
-        item.event.department.code,
-        item.request.venue.name,
-      ].some((value) => value.toLocaleLowerCase().includes(term));
-    });
-    results.sort((a, b) => {
-      if (sort === 'upcoming') return a.request.startTime.localeCompare(b.request.startTime);
-      const bySubmission = a.request.createdAt.localeCompare(b.request.createdAt);
-      return sort === 'newest' ? -bySubmission : bySubmission;
-    });
-    return { counts, results };
-  }, [inbox.data, filter, search, sort]);
-
-  const pageCount = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
-  const page = Math.min(pageIndex, pageCount - 1);
-  const offset = page * PAGE_SIZE;
-  const visible = results.slice(offset, offset + PAGE_SIZE);
-  const isFiltered = filter !== 'all' || search.trim().length > 0;
-
-  function clearFilters() {
-    setFilter('all');
-    setSearch('');
-    setPageIndex(0);
-  }
-
-  return (
-    <>
-      <PageHeader
-        title={title}
-        description={facultyOnly
-          ? 'Review student event requests that need your endorsement.'
-          : 'Review venue requests, resolve scheduling overlaps and confirm allotments.'}
-      />
-
-      {inbox.isError && (
-        <div className="page-alert">
-          <Alert tone="danger" title={inbox.data ? 'Could not refresh the queue' : 'Could not load the queue'}>
-            <button type="button" className="inline-link" onClick={() => void inbox.refetch()}>
-              Try again
-            </button>
-          </Alert>
-        </div>
-      )}
-
-      <section className="queue" aria-label={title} aria-busy={inbox.isPending}>
-        <div className="queue-filters" role="group" aria-label="Filter requests">
-          {FILTERS.filter(({ id }) => !facultyOnly || id !== 'allotment' || counts.allotment > 0 || filter === id).map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              className="queue-filter"
-              aria-pressed={filter === id}
-              onClick={() => { setFilter(id); setPageIndex(0); }}
-            >
-              {label}{inbox.data && <span>{counts[id]}</span>}
-            </button>
-          ))}
-        </div>
-
-        <div className="queue-toolbar">
-          <label className="search-field">
-            <MagnifyingGlass size={17} className="search-icon" aria-hidden="true" />
-            <span className="sr-only">Search event, venue or department</span>
-            <input
-              type="search"
-              className="input search-input"
-              value={search}
-              placeholder="Search event, venue or department"
-              onChange={(event) => { setSearch(event.target.value); setPageIndex(0); }}
-            />
-          </label>
-          <label className="queue-sort">
-            <span>Sort by</span>
-            <select
-              className="input"
-              value={sort}
-              onChange={(event) => { setSort(event.target.value as InboxSort); setPageIndex(0); }}
-            >
-              <option value="oldest">Oldest submitted</option>
-              <option value="newest">Newest submitted</option>
-              <option value="upcoming">Earliest event</option>
-            </select>
-          </label>
-        </div>
-
-        {inbox.isPending ? (
-          <div className="table-skeleton" role="status">
-            <span className="sr-only">Loading requests</span>
-            {[1, 2, 3].map((row) => (
-              <div className="table-skeleton-row" key={row} aria-hidden="true">
-                <Skeleton className="skeleton-line" />
-                <Skeleton className="skeleton-line" />
-              </div>
-            ))}
+  return <div className="product-page approvals-page">
+    <div className="product-page-heading"><div>
+      <h1>Approvals {Boolean(preview.data?.total) && <span className="product-count">{preview.data!.total}</span>}</h1>
+      <p>Review venue requests that need your decision.</p>
+    </div></div>
+    <div className="product-chips" aria-label="Filter approvals">
+      {TABS.map(({ id, label }) => <button key={id} type="button" aria-pressed={view === id} onClick={() => { setView(id); setPage(0); }}>
+        {label}{id === 'pending' && Boolean(preview.data?.total) && <span className="product-count">{preview.data!.total}</span>}
+      </button>)}
+    </div>
+    {inbox.isError ? <Alert tone="danger" title="Could not load approvals">
+      <button type="button" className="inline-link" onClick={() => void inbox.refetch()}>Try again</button>
+    </Alert> : inbox.isPending ? <div className="product-grid" role="status">
+      <span className="sr-only">Loading approvals</span><Skeleton className="skeleton-block" /><Skeleton className="skeleton-block" />
+    </div> : !inbox.data?.items.length ? <div className="product-panel">
+      <EmptyState icon={<CheckCircle size={27} />} title={view === 'decided' ? 'No decisions yet' : 'You’re caught up'}
+        action={page > 0 ? <Button variant="secondary" onClick={() => setPage(0)}>Back to first page</Button> : undefined} />
+    </div> : <div className="product-grid">
+      {inbox.data.items.map((item) => {
+        const { request, event, step, needsAction, conflicts } = item;
+        const active = needsAction && view !== 'decided';
+        const final = active && (step.isFinalAllotmentStep || request.status === 'APPROVED_PENDING_ALLOTMENT');
+        const overlap = conflicts.confirmedCount + conflicts.pendingCount;
+        const action = step.stepOrder === 0 ? 'Endorse' : 'Approve';
+        return <article key={request.id} className="product-panel approval-card">
+          <div className="product-heading-row">
+            {active ? <span className="review-tag">{final ? 'Ready for allotment' : step.stepOrder === 0 ? 'Needs endorsement' : 'Needs review'}</span>
+              : <RequestStatusBadge status={request.status} />}
+            {active && overlap > 0 && <span className="availability-label availability-competing"><WarningCircle size={17} /> {overlap} overlapping</span>}
           </div>
-        ) : inbox.data && visible.length === 0 ? (
-          <EmptyState
-            icon={<CheckCircle size={24} />}
-            title={isFiltered ? 'No matching requests' : 'You’re caught up'}
-            description={isFiltered
-              ? 'Try a different search or clear the filters.'
-              : 'Requests appear here when they reach a stage you can review.'}
-            action={isFiltered && <Button variant="secondary" onClick={clearFilters}>Clear filters</Button>}
-          />
-        ) : visible.length > 0 && (
-          <>
-            <table className="queue-table" role="table">
-              <thead>
-                <tr>
-                  <th scope="col">Event</th>
-                  <th scope="col">Venue & schedule</th>
-                  <th scope="col">Review stage</th>
-                  <th scope="col">Status</th>
-                  <th scope="col"><span className="sr-only">Open request</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((item) => (
-                  <tr key={item.request.id}>
-                    <th scope="row" className="queue-event">
-                      <strong>{item.event.title}</strong>
-                      <span className="queue-meta">
-                        {item.event.department.name} · {item.event.expectedAttendance} attendees
-                      </span>
-                    </th>
-                    <td className="queue-schedule">
-                      <strong>{item.request.venue.name}</strong>
-                      <span className="queue-meta">
-                        {formatDate(item.request.startTime)} · {formatTimeRange(item.request.startTime, item.request.endTime)}
-                      </span>
-                    </td>
-                    <td className="queue-stage">
-                      <strong>{item.step.stepOrder === 0 ? 'Faculty endorsement' : item.step.stepName}</strong>
-                      {item.step.stepOrder > 0 && <span className="queue-meta">{ROLE_LABELS[item.step.requiredRole]}</span>}
-                    </td>
-                    <td className="queue-status">
-                      <RequestStatusBadge status={item.request.status} />
-                      {item.conflicts.confirmedCount > 0 && (
-                        <span className="queue-overlap is-confirmed">
-                          <WarningCircle size={15} aria-hidden="true" /> Confirmed overlap
-                        </span>
-                      )}
-                      {item.conflicts.pendingCount > 0 && (
-                        <span className="queue-overlap">
-                          <WarningCircle size={15} aria-hidden="true" /> {item.conflicts.pendingCount} competing
-                        </span>
-                      )}
-                    </td>
-                    <td className="queue-action">
-                      <Link to={`/approvals/${item.request.id}`} className="btn btn-secondary btn-sm">
-                        {isReady(item) ? 'Review & allot' : 'Review & decide'}
-                        <span className="sr-only"> {item.event.title}</span>
-                        <ArrowRight size={14} aria-hidden="true" />
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            <footer className="table-foot">
-              <p role="status">
-                <strong>{offset + 1}–{offset + visible.length}</strong> of <strong>{results.length}</strong> requests
-              </p>
-              <nav className="pagination" aria-label="Request pages">
-                <Button variant="secondary" size="sm" aria-label="Previous page" disabled={page === 0}
-                  onClick={() => setPageIndex(page - 1)}>
-                  <CaretLeft size={15} aria-hidden="true" />
-                </Button>
-                <span className="page-indicator">Page {page + 1} of {pageCount}</span>
-                <Button variant="secondary" size="sm" aria-label="Next page" disabled={page + 1 >= pageCount}
-                  onClick={() => setPageIndex(page + 1)}>
-                  <CaretRight size={15} aria-hidden="true" />
-                </Button>
-              </nav>
-            </footer>
-          </>
-        )}
-      </section>
-    </>
-  );
+          <h2>{event.title}</h2>
+          <p>{event.submittedByName ? `${event.submittedByName} · ` : ''}{event.department.name}</p>
+          <div className="approval-card-facts">
+            <span><MapPin size={17} aria-hidden="true" /> {request.venue.name}</span>
+            <span><CalendarBlank size={17} aria-hidden="true" /> {formatShortDay(new Date(request.startTime))} · {displaySlot(request.startTime, request.endTime)}</span>
+          </div>
+          <div className="product-actions">
+            {active && !final && overlap === 0 && <Button size="sm" loading={approve.isPending && approve.variables?.request.id === request.id}
+              disabled={approve.isPending} onClick={() => approve.mutate(item)}><Check size={17} /> {action}</Button>}
+            {active && request.status !== 'APPROVED_PENDING_ALLOTMENT' && <Button variant="danger-ghost" size="sm" onClick={() => setRejecting(item)}>Reject</Button>}
+            <Link to={`/approvals/${request.id}`} className={`btn btn-sm ${final ? 'btn-primary' : 'btn-secondary'}`}>
+              {final ? 'Review allotment' : 'Details'} <ArrowRight size={17} />
+            </Link>
+          </div>
+        </article>;
+      })}
+    </div>}
+    {(page > 0 || total > PAGE_SIZE) && <div className="venue-pagination">
+      <Button variant="secondary" disabled={page === 0} onClick={() => setPage(page - 1)}><ArrowLeft size={17} /> Previous</Button>
+      <span>Page {page + 1}</span>
+      <Button variant="secondary" disabled={(page + 1) * PAGE_SIZE >= total} onClick={() => setPage(page + 1)}>Next <ArrowRight size={17} /></Button>
+    </div>}
+    {rejecting && <ApprovalDecisionDialog requestId={rejecting.request.id} updatedAt={rejecting.request.updatedAt}
+      stepName={rejecting.step.stepName} allowApproval={false} initialDecision="REJECTED" onClose={() => setRejecting(undefined)} />}
+  </div>;
 }

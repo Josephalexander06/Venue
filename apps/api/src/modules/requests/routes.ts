@@ -16,9 +16,10 @@ import {
 
 const idParamsSchema = z.object({ id: z.string().uuid() });
 
-function viewerFrom(request: { auth?: { user: { id: string; roles: { role: string }[] } } }) {
+function viewerFrom(request: { auth?: { user: { id: string; roles: { role: string }[]; department: { id: string } } } }) {
   return {
     userId: request.auth!.user.id,
+    departmentId: request.auth!.user.department.id,
     isAdmin: request.auth!.user.roles.some((entry) => entry.role === 'ADMINISTRATOR'),
   };
 }

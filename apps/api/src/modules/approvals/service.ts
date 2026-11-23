@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, isNotNull, ne, notExists, or, sql } from 'drizzle-orm';
+import { and, asc, eq, exists, gt, inArray, isNotNull, ne, notExists, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type {
   ApprovalDecisionInput,
@@ -12,6 +12,7 @@ import {
   departments,
   eventOrganizers,
   events,
+  users,
   venueAllotments,
   venueRequests,
   venues,
@@ -55,6 +56,7 @@ const INBOX_STATUSES = ['SUBMITTED', 'IN_REVIEW', 'APPROVED_PENDING_ALLOTMENT'] 
 
 interface InboxRow extends RequestRow {
   creatorId: string;
+  submittedByName: string;
   facultyCoordinatorId: string | null;
   title: string;
   description: string | null;
@@ -79,6 +81,7 @@ export interface ApprovalInboxItem {
     isFinalAllotmentStep: boolean;
   };
   conflicts: { confirmedCount: number; pendingCount: number };
+  needsAction: boolean;
 }
 
 function eventSummary(row: InboxRow): EventSummary {
@@ -95,6 +98,7 @@ function eventSummary(row: InboxRow): EventSummary {
     },
     facultyCoordinatorId: row.facultyCoordinatorId,
     creatorId: row.creatorId,
+    submittedByName: row.submittedByName,
     createdAt: row.eventCreatedAt.toISOString(),
     updatedAt: row.eventUpdatedAt.toISOString(),
   };
@@ -103,7 +107,7 @@ function eventSummary(row: InboxRow): EventSummary {
 export async function listApprovalInbox(
   db: Database,
   viewer: Viewer & { roles: ViewerRole[] },
-  page: { limit: number; offset: number },
+  page: { limit: number; offset: number; view?: 'pending' | 'decided' | 'all' },
 ) {
   const pending = alias(venueRequests, 'pending');
   // The inbox only needs counts. Compare the indexed ranges without loading conflicting events.
@@ -128,9 +132,38 @@ export async function listApprovalInbox(
     .where(and(eq(eventOrganizers.eventId, events.id), eq(eventOrganizers.userId, viewer.userId)));
   const awaitingAllotment = eq(venueRequests.status, 'APPROVED_PENDING_ALLOTMENT');
 
+  const madeDecision = db.select({ id: approvalDecisions.id })
+    .from(approvalDecisions)
+    .innerJoin(approvalInstances, eq(approvalInstances.id, approvalDecisions.approvalInstanceId))
+    .where(and(eq(approvalDecisions.approverId, viewer.userId), eq(approvalInstances.venueRequestId, venueRequests.id)));
+  const actionable = and(
+    inArray(venueRequests.status, INBOX_STATUSES),
+    ne(events.creatorId, viewer.userId),
+    ne(venueRequests.submittedById, viewer.userId),
+    or(
+      and(
+        eq(venueRequests.currentStepOrder, 0),
+        eq(venueRequests.requiresFacultyEndorsement, true),
+        ne(venueRequests.status, 'APPROVED_PENDING_ALLOTMENT'),
+        isNotNull(approvalInstances.id),
+        viewer.isAdmin ? undefined : eq(events.facultyCoordinatorId, viewer.userId),
+      ),
+      and(
+        gt(venueRequests.currentStepOrder, 0),
+        isNotNull(workflowSteps.id),
+        or(isNotNull(approvalInstances.id), awaitingAllotment),
+        sql`${events.facultyCoordinatorId} IS DISTINCT FROM ${viewer.userId}`,
+        notExists(organizer),
+        or(viewer.isAdmin ? awaitingAllotment : undefined, eligibleInboxStep(viewer.roles)),
+      ),
+    ),
+  );
+  const hasDecided = exists(madeDecision);
   const query = db
     .select({
       ...requestSelection,
+      needsAction: sql<boolean>`coalesce(${actionable}, false)`,
+      submittedByName: sql<string>`concat_ws(' ', ${users.firstName}, ${users.lastName})`,
       creatorId: events.creatorId,
       facultyCoordinatorId: events.facultyCoordinatorId,
       title: events.title,
@@ -157,6 +190,7 @@ export async function listApprovalInbox(
     .from(venueRequests)
     .innerJoin(venues, eq(venues.id, venueRequests.venueId))
     .innerJoin(events, eq(events.id, venueRequests.eventId))
+    .innerJoin(users, eq(users.id, venueRequests.submittedById))
     .innerJoin(departments, eq(departments.id, events.departmentId))
     .leftJoin(approvalInstances, and(
       eq(approvalInstances.venueRequestId, venueRequests.id),
@@ -168,28 +202,7 @@ export async function listApprovalInbox(
       eq(workflowSteps.workflowId, venueRequests.workflowId),
       eq(workflowSteps.stepOrder, venueRequests.currentStepOrder),
     ))
-    .where(and(
-      inArray(venueRequests.status, INBOX_STATUSES),
-      ne(events.creatorId, viewer.userId),
-      ne(venueRequests.submittedById, viewer.userId),
-      or(
-        and(
-          eq(venueRequests.currentStepOrder, 0),
-          eq(venueRequests.requiresFacultyEndorsement, true),
-          ne(venueRequests.status, 'APPROVED_PENDING_ALLOTMENT'),
-          isNotNull(approvalInstances.id),
-          viewer.isAdmin ? undefined : eq(events.facultyCoordinatorId, viewer.userId),
-        ),
-        and(
-          gt(venueRequests.currentStepOrder, 0),
-          isNotNull(workflowSteps.id),
-          or(isNotNull(approvalInstances.id), awaitingAllotment),
-          sql`${events.facultyCoordinatorId} IS DISTINCT FROM ${viewer.userId}`,
-          notExists(organizer),
-          or(viewer.isAdmin ? awaitingAllotment : undefined, eligibleInboxStep(viewer.roles)),
-        ),
-      ),
-    ))
+    .where(page.view === 'decided' ? hasDecided : page.view === 'all' ? or(actionable, hasDecided) : actionable)
     .orderBy(asc(venueRequests.createdAt), asc(venueRequests.id));
 
   const rows = await query.limit(page.limit).offset(page.offset);
@@ -197,6 +210,7 @@ export async function listApprovalInbox(
   const total = rows[0]?.total ?? (page.offset ? (await query.limit(1).offset(0))[0]?.total : 0) ?? 0;
   const items = rows.map((row) => ({
     request: mapRequestRow(row),
+    needsAction: row.needsAction,
     event: eventSummary(row),
     step: row.step ? {
       ...row.step,

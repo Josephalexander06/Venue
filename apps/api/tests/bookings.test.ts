@@ -165,6 +165,27 @@ async function confirmedRequestFor(
 }
 
 describe('venue management', () => {
+  it('keeps maintenance venues off the booking catalog and lets admins return them to service', async () => {
+    const admin = await adminSession();
+    const member = await studentSession();
+    const venue = await createVenue();
+    const headers = mutationHeaders(admin);
+
+    const maintenance = await app.inject({
+      method: 'PATCH', url: `/api/v1/admin/venues/${venue.id}`, headers, payload: { status: 'MAINTENANCE' },
+    });
+    expect(maintenance.json()).toMatchObject({ venue: { status: 'MAINTENANCE', isActive: false } });
+    const filtered = await app.inject({ url: '/api/v1/admin/venues?status=MAINTENANCE', headers });
+    expect(filtered.json()).toMatchObject({ total: 1, venues: [{ id: venue.id }] });
+    const catalog = await app.inject({ url: '/api/v1/venues', headers: mutationHeaders(member) });
+    expect(catalog.json().total).toBe(0);
+
+    const restored = await app.inject({
+      method: 'PATCH', url: `/api/v1/admin/venues/${venue.id}`, headers, payload: { status: 'ACTIVE' },
+    });
+    expect(restored.json()).toMatchObject({ venue: { status: 'ACTIVE', isActive: true } });
+  });
+
   it('combines building, facility and buffered availability filters while retaining pending options', async () => {
     const session = await studentSession();
     const booked = await createVenue({ building: 'Library' });
@@ -360,6 +381,43 @@ describe('venue management', () => {
 });
 
 describe('events and request authorization', () => {
+  it('creates a title-free reservation and rolls back the internal event when submission fails', async () => {
+    const session = await studentSession();
+    const venue = await createVenue({ capacity: 8 });
+    const start = new Date(Date.now() + 24 * 60 * 60_000);
+    const payload = {
+      idempotencyKey: randomUUID(),
+      venueId: venue.id,
+      startTime: start.toISOString(),
+      endTime: new Date(start.getTime() + 60 * 60_000).toISOString(),
+    };
+    const headers = mutationHeaders(session);
+    const invalid = await app.inject({
+      method: 'POST', url: '/api/v1/venue-requests', headers,
+      payload: { ...payload, event: { expectedAttendance: 9 } },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json().code).toBe('CAPACITY_EXCEEDED');
+    expect(await db.select().from(events)).toEqual([]);
+
+    const submit = () => app.inject({ method: 'POST', url: '/api/v1/venue-requests', headers, payload });
+    const [response, retry] = await Promise.all([submit(), submit()]);
+    expect(response.statusCode).toBe(201);
+    expect(retry.statusCode).toBe(201);
+    expect(retry.json().request.id).toBe(response.json().request.id);
+    expect(await db.select().from(events)).toHaveLength(1);
+    expect(response.json()).toMatchObject({
+      request: { status: 'SUBMITTED', venue: { id: venue.id } },
+      event: { title: 'Room reservation', expectedAttendance: 1 },
+    });
+    const schedule = await app.inject({
+      url: `/api/v1/venues/${venue.id}/slot-schedule?from=${payload.startTime}&to=${payload.endTime}`, headers,
+    });
+    expect(schedule.statusCode).toBe(200);
+    expect(schedule.json().entries).toHaveLength(1);
+    expect(Object.keys(schedule.json().entries[0]).sort()).toEqual(['kind', 'rangeEnd', 'rangeStart']);
+  });
+
   it('keeps events owned by their creator and scopes department on create', async () => {
     const student = await studentSession();
     const other = await studentSession('ME');

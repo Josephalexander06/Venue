@@ -4,12 +4,12 @@ import type { RoleName } from '@venue/shared';
 import type { Database } from '../db/index.js';
 import { AppError } from '../lib/errors.js';
 import { SESSION_COOKIE } from '../lib/tokens.js';
-import { resolveSession, revokeSession } from '../modules/auth/service.js';
+import { PENDING_SESSION_PREFIX, resolveSession, revokeSession } from '../modules/auth/service.js';
 
 const authPlugin: FastifyPluginAsync<{ db: Database }> = async (app, { db }) => {
   app.decorateRequest('auth');
 
-  const authenticate = async (request: FastifyRequest) => {
+  const readSession = async (request: FastifyRequest, allowPending: boolean) => {
     const token = request.cookies[SESSION_COOKIE];
     if (!token) {
       throw new AppError(401, 'UNAUTHENTICATED', 'Sign in to continue.');
@@ -19,13 +19,17 @@ const authPlugin: FastifyPluginAsync<{ db: Database }> = async (app, { db }) => 
     if (!session) {
       throw new AppError(401, 'SESSION_EXPIRED', 'Your session has expired. Sign in again.');
     }
-    if (session.user.status !== 'ACTIVE') {
-      await revokeSession(db, session.tokenHash);
+    const pendingSession = session.user.status === 'PENDING_APPROVAL' && token.startsWith(PENDING_SESSION_PREFIX);
+    if (session.user.status !== 'ACTIVE' && !(allowPending && pendingSession)) {
+      if (!pendingSession) await revokeSession(db, session.tokenHash);
       throw new AppError(403, 'ACCOUNT_NOT_ACTIVE', 'This account is not active.');
     }
 
     request.auth = session;
   };
+
+  const authenticate = (request: FastifyRequest) => readSession(request, false);
+  const authenticateCatalog = (request: FastifyRequest) => readSession(request, true);
 
   const requireAnyRole = (allowed: readonly RoleName[]) => {
     return async (request: FastifyRequest) => {
@@ -41,6 +45,7 @@ const authPlugin: FastifyPluginAsync<{ db: Database }> = async (app, { db }) => 
   const requireRole = (role: RoleName) => requireAnyRole([role]);
 
   app.decorate('authenticate', authenticate);
+  app.decorate('authenticateCatalog', authenticateCatalog);
   app.decorate('requireRole', requireRole);
   app.decorate('requireAnyRole', requireAnyRole);
 };

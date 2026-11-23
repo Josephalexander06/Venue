@@ -43,7 +43,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     enabled: !signingOut,
     retry: false,
     staleTime: 60_000,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: (query) => query.state.data?.user.status === 'PENDING_APPROVAL' ? 'always' : false,
+    refetchInterval: (query) => query.state.data?.user.status === 'PENDING_APPROVAL' ? 12_000 : false,
   });
 
   const setSession = useCallback(
@@ -107,9 +108,14 @@ export function RequireAuth() {
   const location = useLocation();
   if (isLoading) return <FullPageLoader label="Checking your session" />;
   if (!user) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />;
   }
   return <Outlet />;
+}
+
+export function RequireActive() {
+  const { user } = useAuth();
+  return user?.status === 'ACTIVE' ? <Outlet /> : <Navigate to="/register/pending" replace />;
 }
 
 export function RequireAdmin() {
@@ -129,7 +135,7 @@ export function RequireApprover() {
 export function RedirectIfAuthed() {
   const { user, isLoading } = useAuth();
   if (isLoading) return <FullPageLoader label="Checking your session" />;
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to={user.status === 'PENDING_APPROVAL' ? '/register/pending' : '/'} replace />;
   return <Outlet />;
 }
 
