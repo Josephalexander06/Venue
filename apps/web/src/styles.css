@@ -6,18 +6,18 @@
   --font-display: 'Lexend Variable', 'Lexend', system-ui, -apple-system, sans-serif;
   --font-body: 'Source Sans 3 Variable', 'Source Sans 3', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 
-  --accent: #146457;
-  --accent-hover: #0d4d43;
-  --accent-soft: #e7f1ee;
-  --shell: #f2f5f3;
-  --paper: #f8faf9;
+  --accent: #324ec2;
+  --accent-hover: #253b9f;
+  --accent-soft: #e9eeff;
+  --shell: #eef1f9;
+  --paper: #f6f7fc;
   --surface: #fff;
-  --surface-2: #f1f5f3;
-  --border: #dce5e1;
-  --border-strong: #b6c6c0;
-  --ink: #172b26;
-  --ink-2: #40554e;
-  --ink-3: #546a62;
+  --surface-2: #eff2fa;
+  --border: #dde3f0;
+  --border-strong: #b0bdd8;
+  --ink: #182440;
+  --ink-2: #35476a;
+  --ink-3: #52617d;
   --ink-inverse: #fff;
 
   --success: #176443;
@@ -34,20 +34,20 @@
   --info-border: #cbdcf0;
 
   /* Existing component aliases */
-  --navy-950: #14332c;
-  --navy-900: #1b453b;
-  --navy-800: #26564b;
-  --navy-700: #315e52;
-  --navy-600: #476b61;
+  --navy-950: #17254e;
+  --navy-900: #1c2f69;
+  --navy-800: #253e84;
+  --navy-700: #344f9a;
+  --navy-600: #536da9;
   --navy-500: var(--accent);
   --navy-100: var(--accent-soft);
   --navy-50: var(--surface-2);
   --gold-800: var(--accent-hover);
   --gold-700: var(--accent-hover);
   --gold-600: var(--accent);
-  --gold-500: #428d7c;
-  --gold-200: #b7d4cb;
-  --gold-100: #d6e9e2;
+  --gold-500: #6982e1;
+  --gold-200: #bdcaf4;
+  --gold-100: #dbe4ff;
   --gold-50: var(--accent-soft);
 
   --space-1: 4px;
@@ -64,9 +64,9 @@
   --radius: 9px;
   --radius-lg: 12px;
   --radius-xl: 16px;
-  --shadow-sm: 0 1px 2px rgb(23 43 38 / 6%);
-  --shadow-md: 0 4px 12px rgb(23 43 38 / 9%);
-  --shadow-lg: 0 18px 48px rgb(23 43 38 / 15%);
+  --shadow-sm: 0 1px 2px rgb(24 36 64 / 6%);
+  --shadow-md: 0 4px 12px rgb(24 36 64 / 9%);
+  --shadow-lg: 0 18px 48px rgb(24 36 64 / 15%);
   --focus-ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
 
 }
@@ -5857,163 +5857,6 @@ body:has(dialog[open]) {
   border: 1px solid rgba(245, 158, 11, 0.28);
 }
 
-.event-team-dialog-content {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.team-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border);
-}
-
-.team-section:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.team-section-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.team-section-header h3 {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.team-section-hint {
-  margin: 2px 0 0;
-  font-size: 0.8rem;
-  color: var(--ink-3);
-  line-height: 1.35;
-}
-
-.team-member-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.team-member-card.coordinator-card {
-  background: rgba(99, 102, 241, 0.04);
-  border-color: rgba(99, 102, 241, 0.2);
-}
-
-.member-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
-  min-width: 0;
-}
-
-.member-info strong {
-  font-size: 0.88rem;
-  color: var(--ink);
-}
-
-.member-email {
-  font-size: 0.8rem;
-  color: var(--ink-2);
-}
-
-.member-dept {
-  font-size: 0.74rem;
-  color: var(--ink-3);
-}
-
-.member-role-tag {
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  font-size: 0.74rem;
-  font-weight: 600;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--ink-2);
-}
-
-.member-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.btn-icon-danger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--ink-3);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.btn-icon-danger:hover {
-  background: rgba(239, 68, 68, 0.1);
-  color: #dc2626;
-  border-color: rgba(239, 68, 68, 0.2);
-}
-
-.team-alert-missing {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 14px;
-  background: rgba(245, 158, 11, 0.08);
-  border: 1px solid rgba(245, 158, 11, 0.25);
-  border-radius: var(--radius-md);
-}
-
-.team-alert-missing .alert-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.team-alert-missing strong {
-  font-size: 0.85rem;
-  color: #b45309;
-}
-
-.team-alert-missing p {
-  margin: 0;
-  font-size: 0.8rem;
-  color: var(--ink-2);
-}
-
-.coordinator-assign-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.add-organizer-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-}
-
-.add-organizer-row .field {
-  flex: 1;
-  margin-bottom: 0;
-}
-
 /* Faculty Endorsement Booking Wizard Banner */
 
 .faculty-endorsement-banner {
@@ -6058,29 +5901,7 @@ body:has(dialog[open]) {
     padding: 16px;
   }
 
-  .team-member-card {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
 
-  .team-member-card .member-info {
-    min-width: calc(100% - 60px);
-  }
-
-  .member-actions {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .add-organizer-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .add-organizer-row .btn {
-    width: 100%;
-    justify-content: center;
-  }
 }
 
 /* ---------------------------------------------------- responsive content */

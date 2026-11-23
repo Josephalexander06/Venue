@@ -45,7 +45,7 @@ The default local services are:
 | Readiness | <http://localhost:4000/health/ready> |
 | PostgreSQL | `localhost:5433` (`venue_dev`, `venue_test`, `venue_e2e`) |
 
-If startup reports a missing notification outbox, connect to your development
+If startup reports an out-of-date schema, connect to your development
 database, run `pnpm db:migrate` with the same `DATABASE_URL` used by the API,
 and restart `pnpm dev`.
 

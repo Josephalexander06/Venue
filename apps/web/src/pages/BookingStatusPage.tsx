@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, CalendarBlank, Check, Clock, PencilSimple, Users, X } from '@phosphor-icons/react';
+import { ArrowLeft, ArrowRight, CalendarBlank, Check, Clock, PencilSimple, Users, UsersThree, X } from '@phosphor-icons/react';
 import { DEFAULT_BOOKING_TITLE } from '@venue/shared';
 import { usePageTitle } from '../auth';
 import { BookingProgress } from '../components/BookingCard';
@@ -40,6 +40,7 @@ export function BookingStatusPage() {
   const { pushToast } = useToast();
   const [cancelling, setCancelling] = useState(false);
   const [showTeam, setShowTeam] = useState(false);
+  const teamTrigger = useRef<HTMLButtonElement>(null);
   const booking = useQuery({ queryKey: ['request', id], queryFn: () => api.requestDetail(id), refetchInterval: 30_000 });
   const detail = booking.data;
   usePageTitle(detail?.request.venue.name ?? 'Booking');
@@ -74,13 +75,17 @@ export function BookingStatusPage() {
       </div>
       <section className="product-panel tracker-panel"><h2>Progress</h2><BookingTracker detail={detail} /></section>
       {detail.request.rejectionReason && <Alert tone="warning" title="Booking update">{detail.request.rejectionReason}</Alert>}
+      <button type="button" ref={teamTrigger} className="product-panel team-launch" onClick={() => setShowTeam(true)} aria-haspopup="dialog">
+        <span className="product-icon"><UsersThree size={21} aria-hidden="true" /></span>
+        <strong>Event team</strong>
+        <ArrowRight size={19} aria-hidden="true" />
+      </button>
       <details className="product-panel product-disclosure">
         <summary>Booking details</summary>
         <div className="status-details">
           {detail.event.title !== DEFAULT_BOOKING_TITLE && <strong>{detail.event.title}</strong>}
           {detail.event.description && <p>{detail.event.description}</p>}
           <p>{detail.event.department.name}</p>
-          <Button variant="secondary" onClick={() => setShowTeam(true)}>Event team <ArrowRight size={17} /></Button>
         </div>
       </details>
       {detail.conflicts.pending.length > 0 && <details className="product-panel product-disclosure">
@@ -100,7 +105,10 @@ export function BookingStatusPage() {
           <Button variant="secondary" onClick={() => setCancelling(false)} disabled={cancel.isPending}>Keep booking</Button>
           <Button variant="danger" onClick={() => cancel.mutate()} loading={cancel.isPending}>Cancel booking</Button>
         </>}>{cancel.error && <Alert tone="danger" title={cancel.error.message} />}</Dialog>}
-      {showTeam && <EventTeamDialog event={detail.event} onClose={() => setShowTeam(false)} />}
+      {showTeam && <EventTeamDialog event={detail.event} onClose={() => {
+        setShowTeam(false);
+        requestAnimationFrame(() => teamTrigger.current?.focus());
+      }} />}
     </>}
   </div>;
 }

@@ -34,7 +34,7 @@ import {
 export function BrandMark({ size = 32, tone = 'dark' }: { size?: number; tone?: 'light' | 'dark' }) {
   const bg = tone === 'light' ? 'var(--surface)' : 'var(--accent)';
   const iconStroke = tone === 'light' ? 'var(--accent)' : 'var(--surface)';
-  const accent = tone === 'light' ? 'var(--accent)' : '#c3e2d7';
+  const accent = tone === 'light' ? 'var(--accent)' : '#d5ddff';
   return (
     <svg
       width={size}

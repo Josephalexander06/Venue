@@ -12,8 +12,9 @@ try {
   await checkDatabaseReadiness(db);
   await app.listen({ port: env.PORT, host: '0.0.0.0' });
 } catch (err) {
-  const message = findPostgresError(err)?.code === '42P01'
-    ? 'Notification outbox is missing. Apply database migrations to the API DATABASE_URL before starting.'
+  const code = findPostgresError(err)?.code;
+  const message = code === '42P01' || code === '42703'
+    ? 'Database schema is out of date. Run pnpm db:migrate against the API DATABASE_URL before starting.'
     : 'API startup failed';
   app.log.error({ err }, message);
   await app.close();

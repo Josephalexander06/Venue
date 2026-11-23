@@ -16,4 +16,5 @@ export function createDatabase(connectionString: string, max = 10) {
 export async function checkDatabaseReadiness(db: Database) {
   // Resolve the outbox on the same search path as the worker without reading rows.
   await db.execute(sql`select 1 from ${schema.notificationOutbox} limit 0`);
+  await db.select({ inMaintenance: schema.venues.inMaintenance }).from(schema.venues).limit(0);
 }
