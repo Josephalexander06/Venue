@@ -299,19 +299,26 @@ export declare const allotmentInboxQuerySchema: z.ZodObject<{
 }, z.core.$strip>;
 export type AllotmentInboxQuery = z.infer<typeof allotmentInboxQuerySchema>;
 export declare const DEFAULT_BOOKING_TITLE = "Room reservation";
-export declare const venueRequestInputSchema: z.ZodObject<{
+export declare const venueRequestInputSchema: z.ZodUnion<readonly [z.ZodObject<{
     idempotencyKey: z.ZodOptional<z.ZodString>;
-    eventId: z.ZodOptional<z.ZodString>;
-    event: z.ZodOptional<z.ZodObject<{
-        description: z.ZodUnion<[z.ZodOptional<z.ZodString>, z.ZodLiteral<"">]>;
-        title: z.ZodOptional<z.ZodString>;
-        expectedAttendance: z.ZodCoercedNumber<unknown>;
-        facultyCoordinatorId: z.ZodNullable<z.ZodOptional<z.ZodString>>;
-    }, z.core.$strip>>;
     venueId: z.ZodString;
     startTime: z.ZodISODateTime;
     endTime: z.ZodISODateTime;
-}, z.core.$strip>;
+    eventId: z.ZodString;
+    event: z.ZodOptional<z.ZodNever>;
+}, z.core.$strip>, z.ZodObject<{
+    idempotencyKey: z.ZodOptional<z.ZodString>;
+    venueId: z.ZodString;
+    startTime: z.ZodISODateTime;
+    endTime: z.ZodISODateTime;
+    eventId: z.ZodOptional<z.ZodNever>;
+    event: z.ZodObject<{
+        description: z.ZodUnion<[z.ZodOptional<z.ZodString>, z.ZodLiteral<"">]>;
+        title: z.ZodString;
+        expectedAttendance: z.ZodCoercedNumber<unknown>;
+        facultyCoordinatorId: z.ZodNullable<z.ZodOptional<z.ZodString>>;
+    }, z.core.$strip>;
+}, z.core.$strip>]>;
 export type VenueRequestInput = z.infer<typeof venueRequestInputSchema>;
 export declare const venueRequestUpdateSchema: z.ZodObject<{
     venueId: z.ZodOptional<z.ZodString>;
@@ -341,7 +348,8 @@ export declare const REQUEST_STATUSES: readonly ["SUBMITTED", "IN_REVIEW", "APPR
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 export declare const REQUEST_STATUS_LABELS: Record<RequestStatus, string>;
 export declare const EVENT_STATUS_LABELS: Record<EventStatus, string>;
-export declare const BOOKING_ROLES: readonly RoleName[];
+export declare const APPROVAL_ONLY_ROLES: readonly RoleName[];
+export declare function canBookVenues(roles: readonly RoleName[]): boolean;
 export interface SessionRole {
     role: RoleName;
     departmentId: string | null;

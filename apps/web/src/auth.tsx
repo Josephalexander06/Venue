@@ -10,6 +10,8 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   APPROVER_ROLES,
+  APPROVAL_ONLY_ROLES,
+  canBookVenues,
   type AuthSessionResponse,
   type RoleName,
   type SessionUser,
@@ -24,6 +26,8 @@ interface AuthContextValue {
   user: SessionUser | null;
   isLoading: boolean;
   isAdmin: boolean;
+  canBook: boolean;
+  approvalOnly: boolean;
   isApprover: boolean;
   isFacultyOnlyApprover: boolean;
   hasRole: (role: RoleName) => boolean;
@@ -74,11 +78,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const user = session.data?.user ?? null;
   const value = useMemo<AuthContextValue>(
     () => {
-      const userRoles = new Set(user?.roles.map((entry) => entry.role) ?? []);
+      const roles = user?.roles.map((entry) => entry.role) ?? [];
+      const userRoles = new Set(roles);
       return {
         user,
         isLoading: session.isPending,
         isAdmin: userRoles.has('ADMINISTRATOR'),
+        canBook: user?.status === 'ACTIVE' && canBookVenues(roles),
+        approvalOnly: APPROVAL_ONLY_ROLES.some((role) => userRoles.has(role)),
         isApprover: APPROVER_ROLES.some((role) => userRoles.has(role)),
         isFacultyOnlyApprover: userRoles.has('FACULTY') &&
           APPROVER_ROLES.every((role) => role === 'FACULTY' || !userRoles.has(role)),
@@ -116,6 +123,11 @@ export function RequireAuth() {
 export function RequireActive() {
   const { user } = useAuth();
   return user?.status === 'ACTIVE' ? <Outlet /> : <Navigate to="/register/pending" replace />;
+}
+
+export function RequireBooker() {
+  const { canBook, approvalOnly } = useAuth();
+  return canBook ? <Outlet /> : <Navigate to={approvalOnly ? '/approvals' : '/forbidden'} replace />;
 }
 
 export function RequireAdmin() {

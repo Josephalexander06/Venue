@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, CalendarBlank, ClipboardText } from '@phosphor-icons/react';
 import { useAuth, usePageTitle } from '../auth';
@@ -10,15 +10,17 @@ import { formatShortDay } from '../lib/datetime';
 
 export function HomePage() {
   usePageTitle('Home');
-  const { user, isApprover } = useAuth();
-  const events = useQuery({ queryKey: ['my-events'], queryFn: api.myEvents });
+  const { user, isApprover, canBook, approvalOnly } = useAuth();
+  const events = useQuery({ queryKey: ['my-events'], queryFn: api.myEvents, enabled: canBook });
   const inbox = useQuery({
     queryKey: APPROVAL_PREVIEW_KEY, queryFn: () => api.approvalInbox({ limit: 3 }),
-    enabled: isApprover, staleTime: 15_000,
+    enabled: isApprover && !approvalOnly, staleTime: 15_000,
   });
   const upcoming = bookingEntries(events.data?.events)
     .filter(({ request }) => bookingPhase(request) !== 'past')
     .sort((a, b) => a.request.startTime.localeCompare(b.request.startTime)).slice(0, 3);
+
+  if (approvalOnly) return <Navigate to="/approvals" replace />;
 
   return <div className="product-page home-page">
     <section className="product-hero home-hero">

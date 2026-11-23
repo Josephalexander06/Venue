@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
-import type { RoleName } from '@venue/shared';
+import { canBookVenues, type RoleName } from '@venue/shared';
 import type { Database } from '../db/index.js';
 import { AppError } from '../lib/errors.js';
 import { SESSION_COOKIE } from '../lib/tokens.js';
@@ -42,10 +42,18 @@ const authPlugin: FastifyPluginAsync<{ db: Database }> = async (app, { db }) => 
     };
   };
 
+  const requireBooking = async (request: FastifyRequest) => {
+    await authenticate(request);
+    if (!canBookVenues(request.auth!.user.roles.map(({ role }) => role))) {
+      throw new AppError(403, 'BOOKING_FORBIDDEN', 'This account does not have permission to book venues.');
+    }
+  };
+
   const requireRole = (role: RoleName) => requireAnyRole([role]);
 
   app.decorate('authenticate', authenticate);
   app.decorate('authenticateCatalog', authenticateCatalog);
+  app.decorate('requireBooking', requireBooking);
   app.decorate('requireRole', requireRole);
   app.decorate('requireAnyRole', requireAnyRole);
 };

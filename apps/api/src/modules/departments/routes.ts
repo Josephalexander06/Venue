@@ -1,5 +1,6 @@
+import { z } from 'zod';
 import type { FastifyPluginAsync } from 'fastify';
-import { and, asc, countDistinct, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, asc, countDistinct, eq, ne, sql } from 'drizzle-orm';
 import {
   UNASSIGNED_DEPARTMENT_CODE,
   departmentInputSchema,
@@ -11,14 +12,13 @@ import type { Database } from '../../db/index.js';
 import {
   departments,
   events,
-  roles,
-  userRoles,
   users,
   venues,
 } from '../../db/schema.js';
 import { writeAudit } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { parseInput } from '../../lib/validation.js';
+import { listFacultyCandidates } from '../events/service.js';
 
 const departmentRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) => {
   app.get('/departments', async () => {
@@ -30,47 +30,10 @@ const departmentRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db 
     return { departments: rows };
   });
 
-  app.get<{ Params: { id: string } }>('/departments/:id/faculty', {
-    preHandler: app.authenticate,
-    handler: async (request) => {
-      const { id } = request.params;
-      const rows = await db
-        .select({
-          id: users.id,
-          firstName: users.firstName,
-          lastName: users.lastName,
-          departmentId: departments.id,
-          departmentCode: departments.code,
-          departmentName: departments.name,
-        })
-        .from(users)
-        .innerJoin(departments, eq(departments.id, users.departmentId))
-        .innerJoin(userRoles, eq(userRoles.userId, users.id))
-        .innerJoin(roles, eq(roles.id, userRoles.roleId))
-        .where(
-          and(
-            eq(users.status, 'ACTIVE'),
-            eq(users.departmentId, id),
-            inArray(roles.name, ['FACULTY', 'HOD']),
-          ),
-        )
-        .groupBy(users.id, departments.id)
-        .orderBy(asc(users.lastName), asc(users.firstName));
-
-      return {
-        faculty: rows.map((r) => ({
-          id: r.id,
-          userId: r.id,
-          firstName: r.firstName,
-          lastName: r.lastName,
-          department: {
-            id: r.departmentId,
-            code: r.departmentCode,
-            name: r.departmentName,
-          },
-        })),
-      };
-    },
+  app.get('/departments/:id/faculty', { preHandler: app.requireBooking }, async (request) => {
+    const { id } = parseInput(z.object({ id: z.string().uuid() }), request.params);
+    const faculty = await listFacultyCandidates(db, id);
+    return { faculty: faculty.map((person) => ({ id: person.userId, ...person })) };
   });
 
   app.get('/admin/departments', {

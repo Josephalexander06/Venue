@@ -378,17 +378,17 @@ const isoTimestamp = z.iso.datetime({ offset: true, message: 'Use an ISO timesta
 
 export const DEFAULT_BOOKING_TITLE = 'Room reservation';
 
-export const venueRequestInputSchema = z.object({
+const requestScheduleSchema = z.object({
   idempotencyKey: z.string().uuid().optional(),
-  eventId: z.string().uuid().optional(),
-  event: eventInputSchema.omit({ departmentId: true }).partial({ title: true }).optional(),
   venueId: z.string().uuid(),
   startTime: isoTimestamp,
   endTime: isoTimestamp,
-}).refine(({ eventId, event }) => !eventId || !event, {
-  path: ['event'],
-  message: 'Choose an existing event or provide new event details.',
 });
+
+export const venueRequestInputSchema = z.union([
+  requestScheduleSchema.extend({ eventId: z.string().uuid(), event: z.never().optional() }),
+  requestScheduleSchema.extend({ eventId: z.never().optional(), event: eventInputSchema.omit({ departmentId: true }) }),
+]);
 export type VenueRequestInput = z.infer<typeof venueRequestInputSchema>;
 
 export const venueRequestUpdateSchema = z
@@ -441,14 +441,13 @@ export const EVENT_STATUS_LABELS: Record<EventStatus, string> = {
   COMPLETED: 'Completed',
 };
 
-export const BOOKING_ROLES: readonly RoleName[] = [
-  'STUDENT',
-  'FACULTY',
-  'HOD',
-  'BURSAR',
-  'PRINCIPAL',
-  'ADMINISTRATOR',
-];
+export const APPROVAL_ONLY_ROLES: readonly RoleName[] = ['HOD', 'BURSAR', 'PRINCIPAL'];
+const BOOKING_ROLES: readonly RoleName[] = ['STUDENT', 'FACULTY', 'ADMINISTRATOR'];
+
+export function canBookVenues(roles: readonly RoleName[]) {
+  return roles.some((role) => BOOKING_ROLES.includes(role)) &&
+    !roles.some((role) => APPROVAL_ONLY_ROLES.includes(role));
+}
 
 export interface SessionRole {
   role: RoleName;

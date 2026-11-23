@@ -196,7 +196,6 @@ interface FacultyCandidate {
   userId: string;
   firstName: string;
   lastName: string;
-  departmentName: string;
 }
 
 export interface OrganizerCandidate {
@@ -560,8 +559,8 @@ export const api = {
     return request<{ event: EventView }>(`/events/${id}`);
   },
 
-  facultyCandidates() {
-    return request<{ candidates: FacultyCandidate[] }>('/events/faculty-candidates');
+  departmentFaculty(departmentId: string) {
+    return request<{ faculty: FacultyCandidate[] }>(`/departments/${departmentId}/faculty`);
   },
 
   createEvent(input: EventInput) {

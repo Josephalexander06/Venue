@@ -1,7 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import {
-  BOOKING_ROLES,
   venueRequestInputSchema,
   venueRequestUpdateSchema,
 } from '@venue/shared';
@@ -36,9 +35,9 @@ function contextFrom(request: {
 }
 
 const requestRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) => {
-  const bookingOnly = { preHandler: app.requireAnyRole(BOOKING_ROLES) };
+  const bookingOnly = { preHandler: app.requireBooking };
 
-  app.get('/venue-requests/:id', bookingOnly, async (request) => {
+  app.get('/venue-requests/:id', { preHandler: app.authenticate }, async (request) => {
     const { id } = parseInput(idParamsSchema, request.params);
     return getRequestView(db, id, viewerFrom(request));
   });
@@ -55,7 +54,7 @@ const requestRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) 
     return updateVenueRequest(db, id, viewerFrom(request), input, contextFrom(request));
   });
 
-  app.delete('/venue-requests/:id', bookingOnly, async (request) => {
+  app.delete('/venue-requests/:id', { preHandler: app.authenticate }, async (request) => {
     const { id } = parseInput(idParamsSchema, request.params);
     return cancelVenueRequest(db, id, viewerFrom(request), contextFrom(request));
   });

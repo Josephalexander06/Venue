@@ -57,7 +57,11 @@ shared database.
 Registration creates a pending account. An administrator signs in, opens
 **Users** in Administration, assigns at least one role, and approves or rejects
 the request.
-Pending, rejected and suspended accounts cannot sign in.
+Pending applicants can browse venues while an administrator reviews their account.
+
+Students, faculty and administrators can book venues. HODs, Bursars and Principals
+sign in to the approvals inbox. To book, select a venue and time, then enter an
+event name. Students choose a faculty coordinator by department.
 
 ## Commands
 

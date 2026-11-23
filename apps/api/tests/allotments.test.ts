@@ -11,6 +11,7 @@ import {
   approvalWorkflows,
   auditLogs,
   departments,
+  events,
   venueAllotments,
   venueRequests,
   venues,
@@ -584,13 +585,13 @@ describe('Phase 4 — Atomic venue allotment & conflict resolution engine', () =
     const hodCsSession = await login(app, users.hodCs.user.email, users.hodCs.password);
     const adminSession = await login(app, users.admin.user.email, users.admin.password);
 
-    // HOD creates their own event and request
-    const event = await createEvent(hodCsSession, {
+    const staffSession = await login(app, users.student1.user.email, users.student1.password);
+    const event = await createEvent(staffSession, {
       title: 'HOD Faculty Meeting',
       expectedAttendance: 20,
     });
     const reqRes = await createBookingRequest(
-      hodCsSession,
+      staffSession,
       event.id,
       venues.deptLab.id,
       '2026-12-14T09:00:00Z',
@@ -598,10 +599,11 @@ describe('Phase 4 — Atomic venue allotment & conflict resolution engine', () =
     );
     const request = reqRes.json().request;
 
-    // Fast-forward to APPROVED_PENDING_ALLOTMENT
+    // Model a legacy booking that reached allotment before the requester became a HOD.
+    await db.update(events).set({ creatorId: users.hodCs.user.id }).where(eq(events.id, event.id));
     await db
       .update(venueRequests)
-      .set({ status: 'APPROVED_PENDING_ALLOTMENT' })
+      .set({ status: 'APPROVED_PENDING_ALLOTMENT', submittedById: users.hodCs.user.id })
       .where(eq(venueRequests.id, request.id));
 
     // HOD attempts to allot their own request

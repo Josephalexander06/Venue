@@ -5,6 +5,7 @@ import {
   RedirectIfAuthed,
   RequireAdmin,
   RequireActive,
+  RequireBooker,
   RequireApprover,
   RequireAuth,
 } from './auth';
@@ -70,8 +71,9 @@ const NotFoundPage = lazy(() =>
 );
 
 function HomeRedirect() {
-  const { user } = useAuth();
-  return <Navigate to={user?.status === 'PENDING_APPROVAL' ? '/register/pending' : '/home'} replace />;
+  const { user, approvalOnly } = useAuth();
+  const target = user?.status === 'PENDING_APPROVAL' ? '/register/pending' : approvalOnly ? '/approvals' : '/home';
+  return <Navigate to={target} replace />;
 }
 
 function LegacyBookingRedirect() {
@@ -108,8 +110,10 @@ export function App() {
             <Route path="/venues/:id" element={<VenueDetailPage />} />
             <Route element={<RequireActive />}>
               <Route path="/home" element={<HomePage />} />
-              <Route path="/bookings" element={<MyBookingsPage />} />
-              <Route path="/bookings/events" element={<MyEventsPage />} />
+              <Route element={<RequireBooker />}>
+                <Route path="/bookings" element={<MyBookingsPage />} />
+                <Route path="/bookings/events" element={<MyEventsPage />} />
+              </Route>
               <Route path="/bookings/:id" element={<BookingStatusPage />} />
               <Route path="/my-events" element={<LegacyBookingRedirect />} />
               <Route path="/my-events/requests/:id" element={<LegacyBookingRedirect />} />

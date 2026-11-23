@@ -10,6 +10,7 @@ import {
   approvalInstances,
   approvalWorkflows,
   departments,
+  events,
   venueAllotments,
   venueRequests,
   venues,
@@ -412,19 +413,22 @@ describe('Phase 3 — Configurable approval workflows and lifecycle', () => {
   });
 
   it('prevents separation-of-duties violation (requester cannot approve own request)', async () => {
-    const { venues, users } = await setupFixtures();
+    const { db, venues, users } = await setupFixtures();
     const hodCsSession = await login(app, users.hodCs.user.email, users.hodCs.password);
 
-    // HOD creates their own event and booking request
-    const event = await createEvent(hodCsSession, { title: 'HOD Faculty Meeting', expectedAttendance: 20 });
+    const staffSession = await login(app, users.student.user.email, users.student.password);
+    const event = await createEvent(staffSession, { title: 'HOD Faculty Meeting', expectedAttendance: 20 });
     const createRes = await createBookingRequest(
-      hodCsSession,
+      staffSession,
       event.id,
       venues.deptLab.id,
       '2026-12-12T10:00:00Z',
       '2026-12-12T12:00:00Z',
     );
     const { request } = createRes.json();
+    // Preserve a legacy request owned by an account that now has the HOD role.
+    await db.update(events).set({ creatorId: users.hodCs.user.id }).where(eq(events.id, event.id));
+    await db.update(venueRequests).set({ submittedById: users.hodCs.user.id }).where(eq(venueRequests.id, request.id));
 
     // HOD should not see their own request in their approval inbox
     const inboxRes = await app.inject({

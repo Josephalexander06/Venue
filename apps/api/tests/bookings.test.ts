@@ -381,7 +381,7 @@ describe('venue management', () => {
 });
 
 describe('events and request authorization', () => {
-  it('creates a title-free reservation and rolls back the internal event when submission fails', async () => {
+  it('requires a name and rolls back the internal event when submission fails', async () => {
     const session = await studentSession();
     const venue = await createVenue({ capacity: 8 });
     const start = new Date(Date.now() + 24 * 60 * 60_000);
@@ -392,15 +392,22 @@ describe('events and request authorization', () => {
       endTime: new Date(start.getTime() + 60 * 60_000).toISOString(),
     };
     const headers = mutationHeaders(session);
+    const missingName = await app.inject({
+      method: 'POST', url: '/api/v1/venue-requests', headers,
+      payload: { ...payload, event: { expectedAttendance: 1 } },
+    });
+    expect(missingName.statusCode).toBe(400);
+    expect(missingName.json().code).toBe('VALIDATION_ERROR');
     const invalid = await app.inject({
       method: 'POST', url: '/api/v1/venue-requests', headers,
-      payload: { ...payload, event: { expectedAttendance: 9 } },
+      payload: { ...payload, event: { title: 'Campus workshop', expectedAttendance: 9 } },
     });
     expect(invalid.statusCode).toBe(400);
     expect(invalid.json().code).toBe('CAPACITY_EXCEEDED');
     expect(await db.select().from(events)).toEqual([]);
 
-    const submit = () => app.inject({ method: 'POST', url: '/api/v1/venue-requests', headers, payload });
+    const submit = () => app.inject({ method: 'POST', url: '/api/v1/venue-requests', headers,
+      payload: { ...payload, event: { title: 'Campus workshop', expectedAttendance: 1 } } });
     const [response, retry] = await Promise.all([submit(), submit()]);
     expect(response.statusCode).toBe(201);
     expect(retry.statusCode).toBe(201);
@@ -408,7 +415,7 @@ describe('events and request authorization', () => {
     expect(await db.select().from(events)).toHaveLength(1);
     expect(response.json()).toMatchObject({
       request: { status: 'SUBMITTED', venue: { id: venue.id } },
-      event: { title: 'Room reservation', expectedAttendance: 1 },
+      event: { title: 'Campus workshop', expectedAttendance: 1 },
     });
     const schedule = await app.inject({
       url: `/api/v1/venues/${venue.id}/slot-schedule?from=${payload.startTime}&to=${payload.endTime}`, headers,
@@ -416,6 +423,26 @@ describe('events and request authorization', () => {
     expect(schedule.statusCode).toBe(200);
     expect(schedule.json().entries).toHaveLength(1);
     expect(Object.keys(schedule.json().entries[0]).sort()).toEqual(['kind', 'rangeEnd', 'rangeStart']);
+  });
+
+  it.each(['HOD', 'BURSAR', 'PRINCIPAL'] as const)('gives %s access to approvals without booking access', async (role) => {
+    const staff = await createTestUser({ role });
+    const session = await login(app, staff.user.email, staff.password);
+    const venue = await createVenue();
+    const start = new Date(Date.now() + 24 * 60 * 60_000);
+    const event = { title: 'Campus workshop', expectedAttendance: 10 };
+    const headers = mutationHeaders(session);
+
+    const denied = await app.inject({
+      method: 'POST', url: '/api/v1/venue-requests', headers,
+      payload: {
+        venueId: venue.id, startTime: start.toISOString(),
+        endTime: new Date(start.getTime() + 60 * 60_000).toISOString(), event,
+      },
+    });
+    expect(denied.json()).toMatchObject({ statusCode: 403, code: 'BOOKING_FORBIDDEN' });
+    expect((await app.inject({ method: 'POST', url: '/api/v1/events', headers, payload: event })).statusCode).toBe(403);
+    expect((await app.inject({ url: '/api/v1/approvals/inbox', headers })).statusCode).toBe(200);
   });
 
   it('keeps events owned by their creator and scopes department on create', async () => {

@@ -7,6 +7,8 @@ import { parseEnv } from '../src/env.js';
 import { type Database } from '../src/db/index.js';
 import {
   approvalWorkflows,
+  roles,
+  userRoles,
   venueRequests,
   venues,
   workflowSteps,
@@ -153,9 +155,17 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
     const inactive = await createTestUser({ role: 'FACULTY', departmentCode: 'ME', status: 'SUSPENDED' });
     const studentSession = await login(app, student.user.email, student.password);
 
+    const csFaculty = await createTestUser({ role: 'FACULTY', departmentCode: 'CS' });
+    const hod = await createTestUser({ role: 'HOD', departmentCode: 'ME' });
+    const admin = await createTestUser({ role: 'ADMINISTRATOR', departmentCode: 'ME' });
+    const [facultyRole] = await db.select({ id: roles.id }).from(roles).where(eq(roles.name, 'FACULTY'));
+    await db.insert(userRoles).values([
+      { userId: hod.user.id, roleId: facultyRole!.id, departmentId: hod.department.id },
+      { userId: admin.user.id, roleId: facultyRole!.id, departmentId: admin.department.id },
+    ]);
     const directoryUrl = '/api/v1/events/faculty-candidates';
     expect((await app.inject(directoryUrl)).statusCode).toBe(401);
-    const directory = await app.inject({ url: directoryUrl, headers: mutationHeaders(studentSession) });
+    const directory = await app.inject({ url: `${directoryUrl}?departmentId=${meFaculty.department.id}`, headers: mutationHeaders(studentSession) });
     expect(directory.statusCode).toBe(200);
     expect(directory.json().candidates).toEqual([{
       userId: meFaculty.user.id,
@@ -163,6 +173,12 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
       lastName: meFaculty.user.lastName,
       departmentName: meFaculty.department.name,
     }]);
+
+    const byDepartment = await app.inject({
+      url: `/api/v1/departments/${csFaculty.department.id}/faculty`,
+      headers: mutationHeaders(studentSession),
+    });
+    expect(byDepartment.json().faculty.map((person: { userId: string }) => person.userId)).toEqual([csFaculty.user.id]);
 
     const eventRes = await app.inject({
       method: 'POST',
@@ -184,6 +200,14 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
     });
     expect(crossDeptRes.statusCode).toBe(200);
     expect(crossDeptRes.json().team.facultyCoordinator.userId).toBe(meFaculty.user.id);
+
+    for (const elevated of [hod, admin]) {
+      const response = await app.inject({
+        method: 'POST', url: `/api/v1/events/${event.id}/coordinator`,
+        headers: mutationHeaders(studentSession), payload: { facultyCoordinatorId: elevated.user.id },
+      });
+      expect(response.json()).toMatchObject({ statusCode: 400, code: 'INVALID_FACULTY_COORDINATOR' });
+    }
 
     // Student role as coordinator
     const studentCoordRes = await app.inject({

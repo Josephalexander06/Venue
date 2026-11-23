@@ -289,7 +289,6 @@
 .tracker-current .tracker-marker { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .tracker-closed .tracker-marker { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-border); }
 .booking-tracker > li > span:last-child { color: var(--ink-3); font-size: .9rem; text-align: right; }
-.status-details { display: grid; justify-items: start; gap: 7px; padding-bottom: 14px; }
 
 .approvals-page .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .approval-card { display: grid; align-content: start; gap: 8px; }
@@ -386,7 +385,7 @@
 @media (max-width: 720px) {
   .product-main :is(.page-header, .directory-toolbar, .table-foot) { gap: 8px; }
   .product-main :is(.filter-tabs, .table-foot) { flex-wrap: wrap; }
-  .product-main :is(.page-actions, .directory-toolbar, .filter-tabs, .table-foot, .status-details) .btn,
+  .product-main :is(.page-actions, .directory-toolbar, .filter-tabs, .table-foot) .btn,
   .product-main .filter-tab { min-height: 48px; }
   .product-main .search-input, .product-main .admin-record select, .product-main .reservation-fields .input,
   .product-main .booking-time-panel .input { min-height: 48px; }
@@ -474,4 +473,34 @@
   .team-dialog .dialog-close, .team-remove { width: 48px; }
   .team-remove { flex-basis: 48px; }
   .team-editor .input { font-size: 16px; }
+}
+
+.reservation-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-3);
+  font-weight: 650;
+}
+
+.reservation-steps li { display: flex; align-items: center; gap: 7px; }
+.reservation-steps span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font-size: .85rem;
+}
+.reservation-steps [aria-current="step"] { color: var(--accent-hover); }
+.reservation-steps [aria-current="step"] span { background: var(--accent); color: #fff; border-color: var(--accent); }
+.reservation-read-only { grid-template-columns: minmax(0, 1fr); }
+.reservation-fields .reservation-back { color: var(--accent-hover); }
+
+@media (max-width: 720px) {
+  .reservation-fields .input { font-size: 16px; }
 }

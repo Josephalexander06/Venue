@@ -4,7 +4,7 @@ import { Plus, Trash } from '@phosphor-icons/react';
 import { DEFAULT_BOOKING_TITLE } from '@venue/shared';
 import { useAuth } from '../auth';
 import { api, type EventSummary, type EventTeamMember, type EventTeamView } from '../lib/api';
-import { FacultyCoordinatorField } from './FacultyCoordinatorField';
+import { FacultyCoordinatorField, type FacultySelection } from './FacultyCoordinatorField';
 import { Alert, Avatar, Button, Dialog, Skeleton, TextField, useToast } from './ui';
 
 type TeamAction = 'coordinator' | 'organizer';
@@ -37,7 +37,8 @@ export function EventTeamDialog({ event, onClose }: { event: EventSummary; onClo
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
   const [editor, setEditor] = useState<TeamAction | null>(null);
-  const [coordinatorId, setCoordinatorId] = useState('');
+  const [coordinator, setCoordinator] = useState<FacultySelection>({ departmentId: '', facultyId: '' });
+  const coordinatorId = coordinator.facultyId;
   const [email, setEmail] = useState('');
   const [removing, setRemoving] = useState<EventTeamMember>();
   const teamKey = ['event-team', event.id];
@@ -69,7 +70,7 @@ export function EventTeamDialog({ event, onClose }: { event: EventSummary; onClo
   function resetEditor() {
     setEditor(null);
     setRemoving(undefined);
-    setCoordinatorId('');
+    setCoordinator({ departmentId: '', facultyId: '' });
     setEmail('');
     change.reset();
   }
@@ -146,8 +147,8 @@ export function EventTeamDialog({ event, onClose }: { event: EventSummary; onClo
           form.preventDefault();
           if (coordinatorId && !change.isPending) change.mutate({ action: 'coordinator', userId: coordinatorId });
         }}>
-          <FacultyCoordinatorField label="Choose a faculty member" name="team-coordinator" required value={coordinatorId}
-            onChange={setCoordinatorId} disabled={change.isPending} />
+          <FacultyCoordinatorField label="Choose a faculty member" name="team-coordinator" required value={coordinator}
+            onChange={setCoordinator} disabled={change.isPending} />
           {change.error && <Alert tone="danger" title={change.error.message} />}
           <div className="team-editor-actions">
             <Button variant="secondary" disabled={change.isPending} onClick={resetEditor}>Cancel</Button>

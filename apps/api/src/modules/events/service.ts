@@ -1,4 +1,5 @@
-import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, notExists, or, sql } from 'drizzle-orm';
+import { APPROVAL_ONLY_ROLES } from '@venue/shared';
 import type {
   EventCoordinatorInput,
   EventInput,
@@ -208,39 +209,40 @@ async function requireDepartment(db: DbExecutor, departmentId: string) {
   return row.id;
 }
 
-const activeFaculty = and(eq(users.status, 'ACTIVE'), inArray(roles.name, ['FACULTY', 'HOD']));
+function activeFaculty(db: DbExecutor) {
+  const elevatedRoles = db.select({ id: userRoles.id }).from(userRoles)
+    .innerJoin(roles, eq(roles.id, userRoles.roleId))
+    .where(and(eq(userRoles.userId, users.id), inArray(roles.name, [...APPROVAL_ONLY_ROLES, 'ADMINISTRATOR'])));
+  return and(eq(users.status, 'ACTIVE'), eq(roles.name, 'FACULTY'), notExists(elevatedRoles));
+}
 
-export function listFacultyCandidates(db: Database) {
+export function listFacultyCandidates(db: Database, departmentId?: string) {
   return db
     .selectDistinct({
       userId: users.id,
       firstName: users.firstName,
       lastName: users.lastName,
-      departmentName: departments.name,
+      department: { id: departments.id, code: departments.code, name: departments.name },
     })
     .from(users)
     .innerJoin(userRoles, eq(userRoles.userId, users.id))
     .innerJoin(roles, eq(roles.id, userRoles.roleId))
     .innerJoin(departments, eq(departments.id, users.departmentId))
-    .where(activeFaculty)
+    .where(and(activeFaculty(db), departmentId ? eq(users.departmentId, departmentId) : undefined))
     .orderBy(users.firstName, users.lastName, departments.name, users.id);
 }
 
-async function validateFacultyCoordinator(db: DbExecutor, coordinatorId: string) {
+export async function validateFacultyCoordinator(db: DbExecutor, coordinatorId: string) {
   const [candidate] = await db
     .select({ id: users.id })
     .from(users)
     .innerJoin(userRoles, eq(userRoles.userId, users.id))
     .innerJoin(roles, eq(roles.id, userRoles.roleId))
-    .where(and(eq(users.id, coordinatorId), activeFaculty))
+    .where(and(eq(users.id, coordinatorId), activeFaculty(db)))
     .limit(1);
 
   if (!candidate) {
-    throw new AppError(
-      400,
-      'INVALID_FACULTY_COORDINATOR',
-      'The designated coordinator must be an active faculty member or head of department.',
-    );
+    throw new AppError(400, 'INVALID_FACULTY_COORDINATOR', 'Choose an active faculty coordinator from the department list.');
   }
 }
 

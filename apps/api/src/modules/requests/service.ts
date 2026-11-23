@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
-import { DEFAULT_BOOKING_TITLE } from '@venue/shared';
+import { canBookVenues } from '@venue/shared';
 import type {
   VenueRequestInput,
   ApprovalDecision,
@@ -36,7 +36,7 @@ import {
   type EventSummary,
   type RequestRow,
 } from './view.js';
-import { insertEvent, isEventCollaborator } from '../events/service.js';
+import { insertEvent, isEventCollaborator, validateFacultyCoordinator } from '../events/service.js';
 
 interface Viewer {
   userId: string;
@@ -564,7 +564,7 @@ export async function getRequestView(
       canDecide,
       canApproveAndAllot: Boolean(canDecide && currentStep &&
         currentStep.id === finalStep?.id && currentStep.id === steps.at(-1)?.id),
-      canEdit: ownerOrAdmin && !closed,
+      canEdit: ownerOrAdmin && !closed && canBookVenues(viewerRoles.map(({ role }) => role)),
       canCancel: ownerOrAdmin && !closed,
       canAllot,
       requiresAllotmentRemarks: viewer.isAdmin && (!finalStep ||
@@ -652,13 +652,9 @@ export async function createVenueRequest(
       }
     }
     assertBookingInterval(start, end);
-    const [event] = input.eventId
-      ? await tx.select().from(events).where(eq(events.id, input.eventId)).for('update').limit(1)
-      : [await insertEvent(tx, viewer, {
-          ...input.event,
-          title: input.event?.title ?? DEFAULT_BOOKING_TITLE,
-          expectedAttendance: input.event?.expectedAttendance ?? 1,
-        }, context)];
+    const [event] = input.event
+      ? [await insertEvent(tx, viewer, input.event, context)]
+      : await tx.select().from(events).where(eq(events.id, input.eventId)).for('update').limit(1);
     if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Event not found.');
 
     const isOrganizer = await isEventCollaborator(tx, event.id, viewer.userId);
@@ -724,16 +720,12 @@ export async function createVenueRequest(
     const workflow = await loadBookingWorkflow(tx, venue);
 
     const callerRoles = await loadViewerRoles(tx, viewer.userId);
-    const isFacultyOrAbove =
-      viewer.isAdmin ||
-      callerRoles.some((r) =>
-        ['FACULTY', 'HOD', 'BURSAR', 'PRINCIPAL', 'ADMINISTRATOR'].includes(r.role),
-      );
+    const canSkipEndorsement = viewer.isAdmin || callerRoles.some(({ role }) => role === 'FACULTY');
 
     let requiresFacultyEndorsement = false;
     let initialStepOrder = workflow.firstStepOrder;
 
-    if (!isFacultyOrAbove) {
+    if (!canSkipEndorsement) {
       if (!event.facultyCoordinatorId) {
         throw new AppError(
           400,
@@ -741,6 +733,7 @@ export async function createVenueRequest(
           'Every event must have a designated faculty coordinator before a student can submit a venue request.',
         );
       }
+      if (input.eventId) await validateFacultyCoordinator(tx, event.facultyCoordinatorId);
       requiresFacultyEndorsement = true;
       initialStepOrder = 0;
     }

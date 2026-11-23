@@ -175,8 +175,8 @@ test('capture rendered workspaces with booking data', async ({ browser, baseURL 
       const person = await createUser(firstName, 'Menon', role);
       await reviewer.clearCookies();
       await signIn(reviewer, person);
-      await capture(viewer, `desktop-${role.toLowerCase()}`, '/home', 'What are you planning?', '.home-action');
-      await expect(viewer.getByRole('link', { name: /Capstone project review/ })).toBeVisible();
+      await capture(viewer, `desktop-${role.toLowerCase()}`, '/approvals', 'Approvals', '.approval-card');
+      await expect(viewer.getByRole('heading', { name: 'Capstone project review' })).toBeVisible();
       await call(reviewer, origin, `/approvals/${reviewRequest.id}/decision`, {
         method: 'POST',
         data: { decision: 'APPROVED', comments: 'Approved for the planned time.' },
@@ -202,7 +202,8 @@ test('capture rendered workspaces with booking data', async ({ browser, baseURL 
     await capture(studentPage, 'mobile-student-home', '/home', 'What are you planning?', '.booking-card');
     await capture(studentPage, 'mobile-venue', `/venues/${auditorium.id}?date=${day}`, 'Main Auditorium', '.time-grid button');
     await studentPage.getByRole('group', { name: 'Hourly time slots' }).getByRole('button', { name: /Open/ }).first().click();
-    await studentPage.getByRole('heading', { name: 'Booking details' }).scrollIntoViewIfNeeded();
+    await studentPage.getByRole('button', { name: 'Next', exact: true }).click();
+    await studentPage.getByRole('heading', { name: 'Event details' }).scrollIntoViewIfNeeded();
     await expect(studentPage.getByRole('button', { name: 'Request venue' })).toBeInViewport();
     await studentPage.screenshot({ path: testInfo.outputPath('mobile-booking.png'), animations: 'disabled' });
     await capture(studentPage, 'mobile-account', '/account', 'My account', '.profile-details');

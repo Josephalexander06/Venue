@@ -2,7 +2,6 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import {
   availabilityQuerySchema,
-  BOOKING_ROLES,
   venueInputSchema,
   venueListQuerySchema,
   venueScheduleQuerySchema,
@@ -62,7 +61,7 @@ const venueRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) =>
     return { venue: await requireVenue(db, id, isAdmin) };
   });
 
-  app.get('/venues/:id/approval-preview', { preHandler: app.requireAnyRole(BOOKING_ROLES) }, async (request) => {
+  app.get('/venues/:id/approval-preview', { preHandler: app.requireBooking }, async (request) => {
     const { id } = parseInput(idParamsSchema, request.params);
     const venue = await requireVenue(db, id);
     const departmentId = venue.department?.id ?? null;

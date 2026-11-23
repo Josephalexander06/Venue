@@ -12,12 +12,12 @@ function navClass({ isActive }: { isActive: boolean }) {
 }
 
 export function AppShell() {
-  const { user, isAdmin, isApprover } = useAuth();
+  const { user, isAdmin, isApprover, canBook, approvalOnly } = useAuth();
   const { pathname } = useLocation();
   const inbox = useQuery({
     queryKey: APPROVAL_PREVIEW_KEY,
     queryFn: () => api.approvalInbox({ limit: 3 }),
-    enabled: isApprover,
+    enabled: isApprover && !approvalOnly,
     staleTime: 15_000,
     refetchInterval: 30_000,
   });
@@ -26,25 +26,26 @@ export function AppShell() {
 
   const pending = user.status === 'PENDING_APPROVAL';
   const count = inbox.data?.total ?? 0;
-  const links = [
-    { to: '/home', label: 'Home', short: 'Home', icon: House },
-    { to: '/venues', label: 'Explore venues', short: 'Book', icon: MapTrifold },
-    { to: '/bookings', label: 'My bookings', short: 'Mine', icon: CalendarCheck },
+  const browse = { to: '/venues', label: 'Explore venues', short: 'Book', icon: MapTrifold };
+  const available = pending ? [browse] : [
+    approvalOnly
+      ? { to: '/approvals', label: 'Approvals', short: 'Approvals', icon: Bell }
+      : { to: '/home', label: 'Home', short: 'Home', icon: House },
+    ...(canBook ? [browse, { to: '/bookings', label: 'My bookings', short: 'Mine', icon: CalendarCheck }] : []),
     ...(isAdmin ? [{ to: '/admin', label: 'Admin', short: 'Admin', icon: GearSix }] : []),
   ];
-  const available = pending ? links.slice(1, 2) : links;
 
   return <>
     <a className="skip-link" href="#main-content">Skip to content</a>
     <div className="product-shell">
       <header className="product-header">
         <div className="product-header-inner">
-          <Link to={pending ? '/venues' : '/home'} className="product-brand" aria-label="Campus Venue home"><BrandLockup compact /></Link>
+          <Link to={pending ? '/venues' : approvalOnly ? '/approvals' : '/home'} className="product-brand" aria-label="Campus Venue home"><BrandLockup compact /></Link>
           <nav className="product-top-nav" aria-label="Primary">
             {available.map(({ to, label }) => <NavLink className={navClass} key={to} to={to}>{label}</NavLink>)}
           </nav>
           <div className="product-header-actions">
-            {isApprover && <Link className="product-icon-link" to="/approvals"
+            {isApprover && !approvalOnly && <Link className="product-icon-link" to="/approvals"
               aria-label={count ? `Approvals, ${count} need attention` : 'Approvals'}>
               <Bell size={22} aria-hidden="true" />{count > 0 && <i className="notification-dot" aria-hidden="true" />}
             </Link>}

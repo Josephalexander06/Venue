@@ -31,6 +31,10 @@ test('campus workflows fit the viewport and the calendar is usable', async ({ pa
     const size = await page.locator('.date-week .date-cells button:enabled').first().boundingBox();
     expect(size?.height).toBeGreaterThanOrEqual(48);
   }
+  await expect(page.getByLabel('Event name')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Event details' })).toBeVisible();
+  await expect(page.getByLabel('Event name')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Request venue' })).toBeEnabled();
 
   async function expectNoHorizontalOverflow() {

@@ -127,14 +127,28 @@ test('registration, browse-only access, venue-first booking, endorsement and all
     await student.getByLabel('Date', { exact: true }).fill(futureDate(31));
     await student.getByRole('link', { name: 'Check slots for Main Auditorium' }).click();
     await student.getByRole('group', { name: 'Hourly time slots' }).getByRole('button', { name: /10–11 AM Open/ }).click();
+    await expect(student.getByLabel('Event name')).toHaveCount(0);
+    await student.getByRole('button', { name: 'Next', exact: true }).click();
+    await expect(student.getByRole('group', { name: 'Hourly time slots' })).toHaveCount(0);
+    await expect(student.getByLabel('Event name')).toHaveAttribute('required', '');
     await student.getByLabel('Attendees').fill('30');
     await student.getByLabel('Event name').fill(title);
-    await student.getByLabel('Faculty coordinator').selectOption({ label: 'Grace Coordinator (Computer Science)' });
+    const coordinator = student.getByLabel('Faculty coordinator', { exact: true });
+    const department = student.getByLabel('Faculty department', { exact: true });
+    await expect(coordinator).toBeDisabled();
+    await department.selectOption({ label: 'Computer Science' });
+    await coordinator.selectOption({ label: 'Grace Coordinator' });
+    await student.getByRole('button', { name: 'Change date or time' }).click();
+    await expect(student.getByRole('button', { name: /10–11 AM Open/, pressed: true })).toBeVisible();
+    await student.getByRole('button', { name: 'Next', exact: true }).click();
+    await expect(department).not.toHaveValue('');
+    await expect(coordinator).not.toHaveValue('');
     const submitted = student.waitForResponse((response) => response.url().endsWith('/venue-requests') && response.request().method() === 'POST');
     await student.getByRole('button', { name: 'Request venue' }).click();
     const { request } = await checked<{ request: { id: string; venue: { id: string } } }>(await submitted, 201);
     await expect(student).toHaveURL(/\/bookings\/[\da-f-]+$/);
     await expect(student.getByRole('heading', { name: 'Progress' })).toBeVisible();
+    await expect(student.getByText('Booking details', { exact: true })).toHaveCount(0);
     await expect(student.getByRole('link', { name: 'Modify booking' })).toBeVisible();
 
     await faculty.goto('/approvals');
@@ -263,7 +277,11 @@ test.describe('scoped approval and concurrent booking', () => {
     const requestId = await createBooking(request, title, routedVenueId, 'student');
     for (const actor of ['faculty', 'hod', 'bursar', 'principal'] as const) {
       await switchRole(page, actor);
-      await page.goto('/approvals');
+      if (actor === 'faculty') await page.goto('/approvals');
+      else {
+        await expect(page).toHaveURL(/\/approvals$/);
+        await expect(page.getByRole('navigation', { name: 'Primary', exact: true }).getByRole('link', { name: 'My bookings' })).toHaveCount(0);
+      }
       await page.getByRole('article').filter({ hasText: title }).getByRole('link', { name: actor === 'principal' ? 'Review allotment' : 'Details' }).click();
       if (actor === 'principal') {
         await page.getByRole('button', { name: 'Approve and confirm' }).click();

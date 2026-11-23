@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, CalendarBlank, Check, Clock, PencilSimple, Users, UsersThree, X } from '@phosphor-icons/react';
 import { DEFAULT_BOOKING_TITLE } from '@venue/shared';
-import { usePageTitle } from '../auth';
+import { useAuth, usePageTitle } from '../auth';
 import { BookingProgress } from '../components/BookingCard';
 import { EventTeamDialog } from '../components/EventTeamDialog';
 import { Alert, Button, Dialog, Skeleton, useToast } from '../components/ui';
@@ -36,6 +36,7 @@ function BookingTracker({ detail }: { detail: RequestDetailView }) {
 
 export function BookingStatusPage() {
   const { id = '' } = useParams();
+  const { approvalOnly } = useAuth();
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
   const [cancelling, setCancelling] = useState(false);
@@ -57,7 +58,7 @@ export function BookingStatusPage() {
   });
 
   return <div className="product-page booking-status-page">
-    <Link className="text-link back-link" to="/bookings"><ArrowLeft size={18} /> My bookings</Link>
+    <Link className="text-link back-link" to={approvalOnly ? '/approvals' : '/bookings'}><ArrowLeft size={18} /> {approvalOnly ? 'Approvals' : 'My bookings'}</Link>
     {booking.isError && <Alert tone="danger" title="Could not load booking">
       <button className="inline-link" type="button" onClick={() => void booking.refetch()}>Try again</button>
     </Alert>}
@@ -66,6 +67,7 @@ export function BookingStatusPage() {
       <div className="product-page-heading">
         <div>
           <h1>{detail.request.venue.name}</h1>
+          {detail.event.title !== DEFAULT_BOOKING_TITLE && <p>{detail.event.title}</p>}
           <div className="catalog-meta">
             <span><CalendarBlank size={18} aria-hidden="true" />{formatDate(detail.request.startTime)} · {displaySlot(detail.request.startTime, detail.request.endTime)}</span>
             <span><Users size={19} aria-hidden="true" />{detail.event.expectedAttendance} attendees</span>
@@ -80,14 +82,6 @@ export function BookingStatusPage() {
         <strong>Event team</strong>
         <ArrowRight size={19} aria-hidden="true" />
       </button>
-      <details className="product-panel product-disclosure">
-        <summary>Booking details</summary>
-        <div className="status-details">
-          {detail.event.title !== DEFAULT_BOOKING_TITLE && <strong>{detail.event.title}</strong>}
-          {detail.event.description && <p>{detail.event.description}</p>}
-          <p>{detail.event.department.name}</p>
-        </div>
-      </details>
       {detail.conflicts.pending.length > 0 && <details className="product-panel product-disclosure">
         <summary>Show competing requests</summary>
         <p className="status-details">{detail.conflicts.pending.length} other {detail.conflicts.pending.length === 1 ? 'request overlaps' : 'requests overlap'} this time.</p>
