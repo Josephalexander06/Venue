@@ -14,7 +14,7 @@ test('campus workflows fit the viewport and the calendar is usable', async ({ pa
   }
 
   await page.goto('/venues');
-  await expect(page.getByRole('heading', { name: 'Find your next space.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Find a venue' })).toBeVisible();
   await page.getByRole('link', { name: 'Check slots for Main Auditorium' }).click();
   await expect(page.getByRole('heading', { name: 'Main Auditorium' })).toBeVisible();
   if (isMobile) {

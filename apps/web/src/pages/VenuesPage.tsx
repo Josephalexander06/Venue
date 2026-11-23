@@ -34,11 +34,10 @@ function CatalogCard({ venue, search, availability, failed, day }: {
   return (
     <article className="catalog-card">
       <div className="catalog-card-body">
-        <span className="product-icon catalog-venue-icon"><Buildings size={25} aria-hidden="true" /></span>
+        <div className="catalog-card-top"><span>{venue.building}</span><span><Users size={16} aria-hidden="true" /> {venue.capacity} seats</span></div>
         <h3><Link to={`/venues/${venue.id}?${search}`}>{venue.name}</Link></h3>
         <div className="catalog-meta">
-          <span><MapPin size={16} aria-hidden="true" />{venue.building}</span>
-          <span><Users size={17} aria-hidden="true" />{venue.capacity} seats</span>
+          <span><MapPin size={16} aria-hidden="true" /> {venue.floor === 0 ? 'Ground floor' : `Floor ${venue.floor}`}</span>
         </div>
         {venue.facilities.length > 0 && <ul className="amenity-list">
           {venue.facilities.slice(0, 3).map((facility) => <li key={facility}>{facility}</li>)}
@@ -99,11 +98,10 @@ export function VenuesPage() {
 
   return (
     <div className="product-page catalog-page">
-      <section className="product-hero catalog-hero" aria-labelledby="catalog-title">
-        <div className="product-hero-copy">
-          <span className="hero-label"><MapPin size={16} aria-hidden="true" /> Campus spaces</span>
-          <h1 id="catalog-title">Find your next space.</h1>
-          <p>Book an auditorium, meeting room, or lab for your next campus event.</p>
+      <section className="catalog-intro" aria-labelledby="catalog-title">
+        <div>
+          <h1 id="catalog-title">Find a venue</h1>
+          <p>Search campus spaces and choose a time for your event.</p>
         </div>
       </section>
 
@@ -127,8 +125,8 @@ export function VenuesPage() {
 
       <section className="catalog-results" aria-labelledby="catalog-results-title">
         <div className="product-heading-row">
-          <div><h2 id="catalog-results-title">Explore venues</h2>
-            {venues.data && <p role="status">{total} {total === 1 ? 'space' : 'spaces'} · {formatShortDay(date)}</p>}
+          <div><h2 id="catalog-results-title">Campus venues</h2>
+            {venues.data && <p role="status">{total} {total === 1 ? 'venue' : 'venues'} · {formatShortDay(date)}</p>}
           </div>
           <div className="product-chips" aria-label="Venue filters">
             {FILTERS.map(({ id, label, icon: Icon }) => (

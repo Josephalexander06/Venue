@@ -3,21 +3,21 @@
    ========================================================================== */
 
 :root {
-  --font-display: 'Lexend Variable', 'Lexend', system-ui, -apple-system, sans-serif;
+  --font-display: 'Source Sans 3 Variable', 'Source Sans 3', system-ui, -apple-system, sans-serif;
   --font-body: 'Source Sans 3 Variable', 'Source Sans 3', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 
-  --accent: #324ec2;
-  --accent-hover: #253b9f;
-  --accent-soft: #e9eeff;
-  --shell: #eef1f9;
-  --paper: #f6f7fc;
+  --accent: #4b4f9e;
+  --accent-hover: #373b80;
+  --accent-soft: #eeeeF9;
+  --shell: #f0f0f5;
+  --paper: #f7f7fa;
   --surface: #fff;
-  --surface-2: #eff2fa;
-  --border: #dde3f0;
-  --border-strong: #b0bdd8;
-  --ink: #182440;
-  --ink-2: #35476a;
-  --ink-3: #52617d;
+  --surface-2: #f2f2f7;
+  --border: #e2e2eb;
+  --border-strong: #b9bacb;
+  --ink: #222437;
+  --ink-2: #45485f;
+  --ink-3: #62667a;
   --ink-inverse: #fff;
 
   --success: #176443;

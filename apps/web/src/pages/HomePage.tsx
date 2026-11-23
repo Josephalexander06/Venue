@@ -26,8 +26,8 @@ export function HomePage() {
     <section className="product-hero home-hero">
       <div className="product-hero-copy">
         <p className="hero-label">Hi, {user?.firstName}</p>
-        <h1>What are you planning?</h1>
-        <p>Find an available space and send a booking request.</p>
+        <h1>Your campus bookings</h1>
+        <p>Find a venue, request a time, and follow your bookings.</p>
         <Link to="/venues" className="btn btn-lg hero-button">
           <CalendarBlank size={20} aria-hidden="true" /> Book a venue <ArrowRight size={18} aria-hidden="true" />
         </Link>
