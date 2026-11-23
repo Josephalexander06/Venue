@@ -220,6 +220,7 @@ test.describe('scoped approval and concurrent booking', () => {
   const stamp = Date.now().toString(36);
   let routedVenueId: string;
   let competingVenueId: string;
+  let departmentVenueId: string;
 
   test.beforeAll(async ({ playwright, baseURL }) => {
     const client = await playwright.request.newContext({ baseURL });
@@ -256,22 +257,23 @@ test.describe('scoped approval and concurrent booking', () => {
         }), 201);
         return venue.id;
       }
-      [routedVenueId, competingVenueId] = await Promise.all([
+      [routedVenueId, competingVenueId, departmentVenueId] = await Promise.all([
         createVenue('ROUTING', ['HOD', 'BURSAR', 'PRINCIPAL']),
         createVenue('CONFLICT', ['BURSAR']),
+        createVenue('DEPARTMENT', ['HOD']),
       ]);
     } finally {
       await client.dispose();
     }
   });
 
-  async function createBooking(client: APIRequestContext, title: string, venueId: string, actor: 'student' | 'faculty') {
+  async function createBooking(client: APIRequestContext, title: string, venueId: string, actor: 'student' | 'faculty', dayOffset = 37) {
     const headers = await apiSession(client, accounts.get(actor)!);
     const { event } = await checked<{ event: { id: string } }>(await client.post('/api/v1/events', {
       headers, data: { title, expectedAttendance: 30, facultyCoordinatorId: actor === 'student' ? accounts.get('faculty')!.id : undefined },
     }), 201);
     const { request } = await checked<{ request: { id: string } }>(await client.post('/api/v1/venue-requests', {
-      headers, data: { eventId: event.id, venueId, startTime: `${futureDate(37)}T10:00:00+05:30`, endTime: `${futureDate(37)}T11:00:00+05:30` },
+      headers, data: { eventId: event.id, venueId, startTime: `${futureDate(dayOffset)}T10:00:00+05:30`, endTime: `${futureDate(dayOffset)}T11:00:00+05:30` },
     }), 201);
     return request.id;
   }
@@ -309,6 +311,105 @@ test.describe('scoped approval and concurrent booking', () => {
     await expect(page.getByRole('heading', { name: 'Progress' })).toBeVisible();
   });
 
+  test('a HOD can compare all overlaps and choose a later request on mobile', async ({ page, request }) => {
+    const titles = [`Club meetup ${stamp}`, `Practice session ${stamp}`, `Scheduled assessment ${stamp}`];
+    const ids: string[] = [];
+    for (const title of titles) ids.push(await createBooking(request, title, departmentVenueId, 'faculty'));
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await switchRole(page, 'hod');
+    const navigation = page.getByRole('navigation', { name: 'Primary mobile' });
+    await navigation.getByRole('link', { name: 'Department' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Mechanical Engineering' })).toBeVisible();
+    await page.getByLabel('Search users').fill(accounts.get('faculty')!.email);
+    await expect(page.getByText(accounts.get('faculty')!.email, { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Venues', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'QA DEPARTMENT' })).toBeVisible();
+    await navigation.getByRole('link', { name: 'Approvals', exact: true }).click();
+    await page.getByRole('button', { name: 'Overlaps', exact: true }).click();
+    await page.getByRole('article').filter({ hasText: titles[0]! }).getByRole('link', { name: 'Compare requests' }).click();
+    const comparison = page.getByRole('region', { name: 'Compare competing requests' });
+    for (const title of titles) await expect(comparison.getByRole('heading', { name: title })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Approve and confirm' })).toBeDisabled();
+
+    await comparison.getByRole('link', { name: `Review ${titles[2]}` }).click();
+    await expect(page).toHaveURL(new RegExp(ids[2]!));
+    await comparison.getByRole('button', { name: 'Choose this request' }).click();
+    await page.getByRole('button', { name: 'Approve and confirm' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Confirm allotment' });
+    await dialog.getByLabel('Why this request has priority').fill('Scheduled assessment required for graduating students.');
+    await dialog.getByRole('button', { name: 'Confirm allotment' }).click();
+    await expect(page.getByText('Confirmed', { exact: true }).first()).toBeVisible();
+    await page.goto(`/approvals/${ids[0]}`);
+    await expect(page.getByText('Superseded', { exact: true }).first()).toBeVisible();
+  });
+
+  test('Bursar and Principal compare student and faculty bookings for the same venue', async ({ page, request }) => {
+    const facultyTitle = `Faculty seminar ${stamp}`;
+    const studentTitle = `Student assessment ${stamp}`;
+    const facultyId = await createBooking(request, facultyTitle, routedVenueId, 'faculty', 43);
+    const studentId = await createBooking(request, studentTitle, routedVenueId, 'student', 43);
+    const endorse = await apiSession(request, accounts.get('faculty')!);
+    await checked(await request.post(`/api/v1/approvals/${studentId}/decision`, { headers: endorse, data: { decision: 'APPROVED' } }));
+    const recommend = async (actor: 'hod' | 'bursar', target: string, competitor: string) => {
+      const headers = await apiSession(request, accounts.get(actor)!);
+      await checked(await request.post(`/api/v1/approvals/${target}/decision`, {
+        headers, data: { decision: 'APPROVED', comments: 'Reviewed for the next approval stage.', reviewedCompetingRequestIds: [competitor] },
+      }));
+    };
+    await recommend('hod', studentId, facultyId);
+    await recommend('hod', facultyId, studentId);
+
+    const comparison = page.getByRole('region', { name: 'Compare competing requests' });
+    const student = comparison.getByRole('article').filter({ has: page.getByRole('heading', { name: studentTitle }) });
+    const faculty = comparison.getByRole('article').filter({ has: page.getByRole('heading', { name: facultyTitle }) });
+    const checkPeople = async () => {
+      const studentRequester = student.locator('dl[aria-label="Booking participants"] > div').filter({ hasText: 'Student requester' });
+      const coordinator = student.locator('dl[aria-label="Booking participants"] > div').filter({ hasText: 'Faculty coordinator' });
+      await expect(studentRequester).toContainText('Booking QA STUDENT');
+      await expect(studentRequester).toContainText('Computer Science');
+      await expect(coordinator).toContainText('Booking QA FACULTY');
+      await expect(coordinator).toContainText('Mechanical Engineering');
+      await expect(faculty.getByText('Faculty requester', { exact: true })).toBeVisible();
+      await expect(faculty).toContainText('Booking QA FACULTY');
+      await expect(faculty).toContainText('Mechanical Engineering');
+      await expect(faculty.getByText('Faculty coordinator', { exact: true })).toHaveCount(0);
+    };
+    const openComparison = async () => {
+      await page.getByRole('button', { name: 'Overlaps', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'QA ROUTING', exact: true })).toBeVisible();
+      await page.getByRole('article').filter({ hasText: studentTitle }).getByRole('link', { name: 'Compare requests' }).click();
+      await checkPeople();
+    };
+
+    await switchRole(page, 'bursar');
+    await openComparison();
+    const recommendation = page.getByRole('button', { name: 'Approve with recommendation' });
+    await expect(recommendation).toBeDisabled();
+    await student.getByRole('button', { name: 'Choose this request' }).click();
+    await expect(recommendation).toBeDisabled();
+    const bursarNote = 'The student assessment has a fixed academic timetable.';
+    await page.getByLabel('Why this request has priority').fill(bursarNote);
+    const bursarDecision = page.waitForResponse(`**/api/v1/approvals/${studentId}/decision`);
+    await recommendation.click();
+    expect((await bursarDecision).ok()).toBe(true);
+    await recommend('bursar', facultyId, studentId);
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await switchRole(page, 'principal');
+    await openComparison();
+    await expect(student).toContainText(bursarNote);
+    await expect(page.getByRole('button', { name: 'Approve and confirm' })).toBeDisabled();
+    await student.getByRole('button', { name: 'Choose this request' }).click();
+    await page.getByRole('button', { name: 'Approve and confirm' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Confirm allotment' });
+    await dialog.getByLabel('Why this request has priority').fill('The scheduled student assessment needs this room.');
+    await dialog.getByRole('button', { name: 'Confirm allotment' }).click();
+    await expect(page.getByText('Confirmed', { exact: true }).first()).toBeVisible();
+    await page.goto(`/approvals/${facultyId}`);
+    await expect(page.getByText('Superseded', { exact: true }).first()).toBeVisible();
+  });
+
   test('lets only one concurrent browser allotment reserve a competing slot', async ({ page, request }) => {
     const titles = [`Competing A ${stamp}`, `Competing B ${stamp}`];
     const ids: string[] = [];
@@ -318,7 +419,10 @@ test.describe('scoped approval and concurrent booking', () => {
     const action = 'Approve and confirm';
     await Promise.all(tabs.map(async (tab, index) => {
       await tab.goto(`/approvals/${ids[index]}`);
+      await expect(tab.getByRole('button', { name: action })).toBeDisabled();
+      await tab.getByRole('button', { name: 'Choose this request' }).click();
       await tab.getByRole('button', { name: action }).click();
+      await tab.getByRole('dialog').getByLabel('Why this request has priority').fill('Priority campus activity for scheduled participants.');
       await expect(tab.getByRole('dialog').getByRole('list', { name: 'Competing requests' })).toContainText(titles[1 - index]!);
     }));
     const statuses = await Promise.all(tabs.map(async (tab) => {

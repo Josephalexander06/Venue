@@ -6,6 +6,7 @@ import {
   RequireAdmin,
   RequireActive,
   RequireBooker,
+  RequireDepartmentHead,
   RequireApprover,
   RequireAuth,
 } from './auth';
@@ -62,6 +63,9 @@ const AdminDepartmentsPage = lazy(() =>
   import('./pages/AdminDepartmentsPage').then((module) => ({
     default: module.AdminDepartmentsPage,
   })),
+);
+const DepartmentPage = lazy(() =>
+  import('./pages/DepartmentPage').then((module) => ({ default: module.DepartmentPage })),
 );
 const ForbiddenPage = lazy(() =>
   import('./pages/ErrorPages').then((module) => ({ default: module.ForbiddenPage })),
@@ -121,6 +125,9 @@ export function App() {
               <Route path="/approvals/:id" element={<ApprovalDetailPage />} />
               <Route element={<RequireApprover />}>
                 <Route path="/approvals" element={<ApprovalInboxPage />} />
+              </Route>
+              <Route element={<RequireDepartmentHead />}>
+                <Route path="/department" element={<DepartmentPage />} />
               </Route>
               <Route element={<RequireAdmin />}>
                 <Route path="/admin" element={<AdminOverviewPage />} />

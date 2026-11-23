@@ -209,6 +209,7 @@ export const approvalDecisionInputSchema = z
     decision: z.enum(APPROVAL_DECISIONS),
     expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
     comments: z.string().trim().max(1000).optional().or(z.literal('')),
+    reviewedCompetingRequestIds: z.array(z.string().uuid()).optional(),
 })
     .superRefine((value, context) => {
     if (value.decision !== 'APPROVED' && (value.comments?.trim().length ?? 0) < 5) {
@@ -222,7 +223,7 @@ export const approvalDecisionInputSchema = z
     }
 });
 export const approvalInboxQuerySchema = z.object({
-    view: z.enum(['pending', 'decided', 'all']).optional(),
+    view: z.enum(['pending', 'decided', 'all', 'overlaps']).optional(),
     limit: z.coerce.number().int().min(1).max(50).default(25),
     offset: z.coerce.number().int().min(0).default(0),
 });

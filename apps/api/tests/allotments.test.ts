@@ -95,12 +95,13 @@ describe('Phase 4 — Atomic venue allotment & conflict resolution engine', () =
     session: TestSession,
     request: { id: string; updatedAt: string },
     reviewedCompetingRequestIds: string[] = [],
+    remarks?: string,
   ) {
     return app.inject({
       method: 'POST',
       url: `/api/v1/approvals/${request.id}/approve-and-allot`,
       headers: mutationHeaders(session),
-      payload: { expectedUpdatedAt: request.updatedAt, reviewedCompetingRequestIds },
+      payload: { expectedUpdatedAt: request.updatedAt, reviewedCompetingRequestIds, remarks },
     });
   }
 
@@ -290,8 +291,8 @@ describe('Phase 4 — Atomic venue allotment & conflict resolution engine', () =
     expect(before.map((request) => request.status)).toEqual(['SUBMITTED', 'SUBMITTED']);
 
     const outcomes = await Promise.all([
-      approveAndAllot(hod!, a, [b.id]),
-      approveAndAllot(hod!, b, [a.id]),
+      approveAndAllot(hod!, a, [b.id], 'Priority teaching event'),
+      approveAndAllot(hod!, b, [a.id], 'Scheduled departmental event'),
     ]);
     expect(outcomes.map((result) => result.statusCode).sort()).toEqual([200, 409]);
     expect(outcomes.find((result) => result.statusCode === 409)?.json().code).toBe('SLOT_ALREADY_ALLOTTED');
@@ -422,6 +423,19 @@ describe('Phase 4 — Atomic venue allotment & conflict resolution engine', () =
     expect(compData.competingRequests[0].event.title).toBe('Hackathon Prep B');
     expect(compData.competingRequests[0].event.department.code).toBe('CS');
 
+    expect(compData.competingRequests[0].canReview).toBe(true);
+    expect(compData.competingRequests[0].departmentNote).toBe('Approved in test');
+    const missingReview = await app.inject({
+      method: 'POST', url: '/api/v1/allotments/confirm', headers: mutationHeaders(hodCsSession),
+      payload: { venueRequestId: requestA.id },
+    });
+    expect(missingReview.json().code).toBe('COMPETING_REVIEW_REQUIRED');
+    const missingReason = await app.inject({
+      method: 'POST', url: '/api/v1/allotments/confirm', headers: mutationHeaders(hodCsSession),
+      payload: { venueRequestId: requestA.id, reviewedCompetingRequestIds: [requestB.id] },
+    });
+    expect(missingReason.json().code).toBe('PRIORITY_REASON_REQUIRED');
+
     // HOD confirms allotment for Request A
     const confirmRes = await app.inject({
       method: 'POST',
@@ -430,6 +444,7 @@ describe('Phase 4 — Atomic venue allotment & conflict resolution engine', () =
       payload: {
         venueRequestId: requestA.id,
         remarks: 'Awarded to Coding Competition A',
+        reviewedCompetingRequestIds: [requestB.id],
       },
     });
 
@@ -510,13 +525,13 @@ describe('Phase 4 — Atomic venue allotment & conflict resolution engine', () =
         method: 'POST',
         url: '/api/v1/allotments/confirm',
         headers: mutationHeaders(hodCsSession),
-        payload: { venueRequestId: req1.id },
+        payload: { venueRequestId: req1.id, reviewedCompetingRequestIds: [req2.id], remarks: 'Priority teaching event' },
       }),
       app.inject({
         method: 'POST',
         url: '/api/v1/allotments/confirm',
         headers: mutationHeaders(hodCsSession),
-        payload: { venueRequestId: req2.id },
+        payload: { venueRequestId: req2.id, reviewedCompetingRequestIds: [req1.id], remarks: 'Priority teaching event' },
       }),
     ]);
 
@@ -791,7 +806,7 @@ describe('Phase 4 — Atomic venue allotment & conflict resolution engine', () =
       method: 'POST',
       url: '/api/v1/allotments/confirm',
       headers: mutationHeaders(hodCsSession),
-      payload: { venueRequestId: req1.id },
+      payload: { venueRequestId: req1.id, reviewedCompetingRequestIds: [req2.id], remarks: 'Priority teaching event' },
     });
     expect(allot1Res.statusCode).toBe(200);
 

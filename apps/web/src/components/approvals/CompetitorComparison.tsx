@@ -1,81 +1,96 @@
-import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowSquareOut, WarningCircle } from '@phosphor-icons/react';
-import { api, type RequestDetailView } from '../../lib/api';
-import { formatTimeRange } from '../../lib/datetime';
+import { ArrowRight, Check } from '@phosphor-icons/react';
+import { APPROVAL_ONLY_ROLES, type BookingPeople, type BookingReviewNote, type RequestStatus } from '@venue/shared';
+import { api, type ApprovalDetailView } from '../../lib/api';
 import { formatDate } from '../../lib/format';
+import { displaySlot } from '../../lib/slot-schedule';
+import { BookingPeopleSummary } from './BookingPeopleSummary';
 import { RequestStatusBadge } from '../booking';
-import { SelectField } from '../ui';
+import { Alert, Button, Skeleton } from '../ui';
 
-export function CompetitorComparison({
-  detail,
-  canReadOrganizer,
-}: {
-  detail: RequestDetailView;
-  canReadOrganizer: boolean;
+function RequestOption({ title, department, description, attendance, status, start, end, people, stage, notes, children }: {
+  title: string;
+  department: string;
+  description: string | null;
+  attendance: number;
+  status: RequestStatus;
+  start: string;
+  end: string;
+  people: BookingPeople | null;
+  stage?: string | null;
+  notes: BookingReviewNote[];
+  children?: ReactNode;
 }) {
-  const [selectedId, setSelectedId] = useState('');
-  const { request, event, conflicts } = detail;
-  const organizers = useQuery({
+  return <article className="product-panel comparison-option">
+    <h3>{title}</h3>
+    <RequestStatusBadge status={status} />
+    <BookingPeopleSummary people={people} />
+    <dl>
+      <div><dt>Event department</dt><dd>{department}</dd></div>
+      {stage && <div><dt>Current step</dt><dd>{stage}</dd></div>}
+      <div><dt>Requested time</dt><dd>{formatDate(start)} · {displaySlot(start, end)}</dd></div>
+      <div><dt>Attendees</dt><dd>{attendance}</dd></div>
+      <div><dt>Event purpose</dt><dd>{description || 'No description provided'}</dd></div>
+      {notes.map(({ role, stepName, note }, index) => (
+        <div key={`${role}-${index}`}><dt>{stepName} note</dt><dd>{note}</dd></div>
+      ))}
+    </dl>
+    {children}
+  </article>;
+}
+
+export function CompetitorComparison({ detail, canChoose, chosen, onChoose, onRefresh }: {
+  detail: ApprovalDetailView;
+  canChoose: boolean;
+  chosen: boolean;
+  onChoose: (ids: string[]) => void;
+  onRefresh: () => void;
+}) {
+  const { request, event, conflicts, timeline } = detail;
+  const query = useQuery({
     queryKey: ['approval', request.id, 'competitors'],
     queryFn: () => api.competingRequests(request.id),
-    enabled: canReadOrganizer,
   });
+  const others = query.data?.competingRequests ?? [];
+  const matches = query.isSuccess && others.length === conflicts.pending.length &&
+    conflicts.pending.every(({ requestId }) => others.some(({ request }) => request.id === requestId));
+  const notes = timeline.flatMap(({ requiredRole, decision, stepName, state }) =>
+    APPROVAL_ONLY_ROLES.includes(requiredRole) && state === 'APPROVED' && decision?.remarks
+      ? [{ role: requiredRole, stepName, note: decision.remarks }] : []);
+  const stage = request.status === 'APPROVED_PENDING_ALLOTMENT' ? 'Final allotment'
+    : timeline.find(({ stepOrder }) => stepOrder === request.currentStepOrder)?.stepName;
 
-  const competitor = conflicts.pending.find((item) => item.requestId === selectedId) ?? conflicts.pending[0];
-  if (!competitor) return null;
-  const organizer = organizers.data?.competingRequests.find((item) => item.request.id === competitor.requestId)?.organizer;
+  function refresh() {
+    onRefresh();
+    void query.refetch();
+  }
 
-  return (
-    <section className="card comparison-panel" aria-labelledby="competition-heading">
-      <div className="card-head">
-        <div>
-          <h2 id="competition-heading">Competing requests</h2>
-          <p>Compare event times and reservation buffers before confirming an allotment.</p>
-        </div>
-        <span className="queue-overlap"><WarningCircle size={16} aria-hidden="true" /> {conflicts.pending.length} overlapping</span>
-      </div>
-
-      {conflicts.pending.length > 1 && (
-        <SelectField label="Compare with" value={competitor.requestId} onChange={(change) => setSelectedId(change.target.value)}>
-          {conflicts.pending.map((item) => (
-            <option value={item.requestId} key={item.requestId}>{item.title} · {formatTimeRange(item.startTime, item.endTime)}</option>
-          ))}
-        </SelectField>
-      )}
-
-      <div className="comparison-grid">
-        <section>
-          <div className="comparison-kicker">Current request</div>
-          <h3>{event.title}</h3>
-          <RequestStatusBadge status={request.status} />
-          <dl>
-            <div><dt>Department</dt><dd>{event.department.name}</dd></div>
-            <div><dt>Event time</dt><dd>{formatDate(request.startTime)} · {formatTimeRange(request.startTime, request.endTime)}</dd></div>
-            <div><dt>With buffers</dt><dd>{formatTimeRange(request.effectiveStart, request.effectiveEnd)}</dd></div>
-            <div><dt>Attendance</dt><dd>{event.expectedAttendance} of {request.venue.capacity} seats</dd></div>
-          </dl>
-        </section>
-
-        <section>
-          <div className="comparison-kicker">Overlapping request</div>
-          <h3>{competitor.title}</h3>
-          <RequestStatusBadge status={competitor.status} />
-          <dl>
-            <div><dt>Department</dt><dd>{competitor.departmentName ?? '—'}</dd></div>
-            <div><dt>Event time</dt><dd>{formatDate(competitor.startTime)} · {formatTimeRange(competitor.startTime, competitor.endTime)}</dd></div>
-            <div><dt>With buffers</dt><dd>{formatTimeRange(competitor.rangeStart, competitor.rangeEnd)}</dd></div>
-            <div><dt>Attendance</dt><dd>{competitor.expectedAttendance === undefined ? '—' : `${competitor.expectedAttendance} of ${request.venue.capacity} seats`}</dd></div>
-            {organizer && <div><dt>Organizer</dt><dd>{organizer.firstName} {organizer.lastName}</dd></div>}
-          </dl>
-          {canReadOrganizer && (
-            <Link className="text-link" to={`/approvals/${competitor.requestId}`}>
-              Open request <ArrowSquareOut size={14} aria-hidden="true" />
-            </Link>
-          )}
-        </section>
-      </div>
-    </section>
-  );
+  return <section id="competing-requests" className="product-section conflict-review" aria-labelledby="competition-heading">
+    <div className="product-heading-row">
+      <div><h2 id="competition-heading">Compare competing requests</h2><p>{request.venue.name} · {request.venue.capacity} seats</p></div>
+    </div>
+    {query.isPending && <div role="status"><span className="sr-only">Loading competing requests</span><Skeleton className="skeleton-block" /></div>}
+    {(query.isError || (query.isSuccess && !matches)) && <Alert tone="warning"
+      title={query.isError ? 'Could not load competing requests' : 'The competing requests changed'}>
+      <button type="button" className="inline-link" onClick={refresh}>Refresh comparison</button>
+    </Alert>}
+    {matches && <div className="conflict-options">
+      <RequestOption title={event.title} department={event.department.name} description={event.description}
+        attendance={event.expectedAttendance} status={request.status} start={request.startTime} end={request.endTime} people={detail.people} stage={stage} notes={notes}>
+        {canChoose && <Button type="button" variant={chosen ? 'secondary' : 'primary'} aria-pressed={chosen}
+          onClick={() => onChoose(others.map(({ request }) => request.id))}>
+          {chosen && <Check size={17} aria-hidden="true" />} {chosen ? 'Selected request' : 'Choose this request'}
+        </Button>}
+      </RequestOption>
+      {others.map(({ request: alternative, event: contender, canReview, reviewNotes, people, stage: competitorStage }) => <RequestOption key={alternative.id}
+        title={contender.title} department={contender.department.name} description={contender.description}
+        attendance={contender.expectedAttendance} status={alternative.status} start={alternative.startTime} end={alternative.endTime}
+        people={people} stage={competitorStage} notes={reviewNotes}>
+        {canReview && <Link className="btn btn-secondary btn-md" to={`/approvals/${alternative.id}#competing-requests`}
+          aria-label={`Review ${contender.title}`}>Review request <ArrowRight size={16} aria-hidden="true" /></Link>}
+      </RequestOption>)}
+    </div>}
+  </section>;
 }

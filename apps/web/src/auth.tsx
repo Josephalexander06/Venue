@@ -28,6 +28,7 @@ interface AuthContextValue {
   isAdmin: boolean;
   canBook: boolean;
   approvalOnly: boolean;
+  isDepartmentHead: boolean;
   isApprover: boolean;
   isFacultyOnlyApprover: boolean;
   hasRole: (role: RoleName) => boolean;
@@ -86,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAdmin: userRoles.has('ADMINISTRATOR'),
         canBook: user?.status === 'ACTIVE' && canBookVenues(roles),
         approvalOnly: APPROVAL_ONLY_ROLES.some((role) => userRoles.has(role)),
+        isDepartmentHead: Boolean(user?.roles.some(({ role, departmentId }) => role === 'HOD' && departmentId === user.department.id)),
         isApprover: APPROVER_ROLES.some((role) => userRoles.has(role)),
         isFacultyOnlyApprover: userRoles.has('FACULTY') &&
           APPROVER_ROLES.every((role) => role === 'FACULTY' || !userRoles.has(role)),
@@ -128,6 +130,11 @@ export function RequireActive() {
 export function RequireBooker() {
   const { canBook, approvalOnly } = useAuth();
   return canBook ? <Outlet /> : <Navigate to={approvalOnly ? '/approvals' : '/forbidden'} replace />;
+}
+
+export function RequireDepartmentHead() {
+  const { isDepartmentHead } = useAuth();
+  return isDepartmentHead ? <Outlet /> : <Navigate to="/forbidden" replace />;
 }
 
 export function RequireAdmin() {

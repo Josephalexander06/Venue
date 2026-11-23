@@ -206,6 +206,7 @@ export declare const approvalDecisionInputSchema: z.ZodObject<{
     }>;
     expectedUpdatedAt: z.ZodOptional<z.ZodISODateTime>;
     comments: z.ZodUnion<[z.ZodOptional<z.ZodString>, z.ZodLiteral<"">]>;
+    reviewedCompetingRequestIds: z.ZodOptional<z.ZodArray<z.ZodString>>;
 }, z.core.$strip>;
 export type ApprovalDecisionInput = z.infer<typeof approvalDecisionInputSchema>;
 export declare const approvalInboxQuerySchema: z.ZodObject<{
@@ -213,6 +214,7 @@ export declare const approvalInboxQuerySchema: z.ZodObject<{
         pending: "pending";
         decided: "decided";
         all: "all";
+        overlaps: "overlaps";
     }>>;
     limit: z.ZodDefault<z.ZodCoercedNumber<unknown>>;
     offset: z.ZodDefault<z.ZodCoercedNumber<unknown>>;
@@ -367,6 +369,25 @@ export interface SessionUser {
         name: string;
     };
     roles: SessionRole[];
+}
+export interface BookingPerson {
+    name: string;
+    department: {
+        id: string;
+        code: string;
+        name: string;
+    };
+}
+export interface BookingPeople {
+    requester: (BookingPerson & {
+        kind: 'STUDENT' | 'FACULTY' | 'OTHER';
+    }) | null;
+    facultyCoordinator: BookingPerson | null;
+}
+export interface BookingReviewNote {
+    role: RoleName;
+    stepName: string;
+    note: string;
 }
 export interface ApiErrorBody {
     statusCode: number;

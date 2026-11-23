@@ -5,6 +5,7 @@ import {
   UNASSIGNED_DEPARTMENT_CODE,
   departmentInputSchema,
   departmentUpdateSchema,
+  type SessionUser,
   type DepartmentInput,
   type DepartmentUpdateInput,
 } from '@venue/shared';
@@ -19,6 +20,21 @@ import { writeAudit } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { parseInput } from '../../lib/validation.js';
 import { listFacultyCandidates } from '../events/service.js';
+import { listUserViews } from '../users/view.js';
+import { listVenues } from '../venues/service.js';
+
+const departmentParams = z.object({ id: z.string().uuid() });
+const directoryQuery = z.object({
+  search: z.string().trim().max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(18),
+  offset: z.coerce.number().int().nonnegative().default(0),
+});
+
+function requireDepartmentHead(user: SessionUser, departmentId: string) {
+  if (!user.roles.some((role) => role.role === 'HOD' && role.departmentId === departmentId)) {
+    throw new AppError(403, 'DEPARTMENT_ACCESS_FORBIDDEN', 'You can only open the directory for a department you lead.');
+  }
+}
 
 const departmentRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) => {
   app.get('/departments', async () => {
@@ -34,6 +50,26 @@ const departmentRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db 
     const { id } = parseInput(z.object({ id: z.string().uuid() }), request.params);
     const faculty = await listFacultyCandidates(db, id);
     return { faculty: faculty.map((person) => ({ id: person.userId, ...person })) };
+  });
+
+  app.get('/departments/:id/members', { preHandler: app.authenticate }, async (request) => {
+    const { id } = parseInput(departmentParams, request.params);
+    requireDepartmentHead(request.auth!.user, id);
+    const filters = parseInput(directoryQuery, request.query);
+    const { users, total } = await listUserViews(db, { ...filters, departmentId: id });
+    return {
+      total,
+      members: users.map(({ id: userId, firstName, lastName, email, status, roles }) => ({
+        id: userId, firstName, lastName, email, status, roles: [...new Set(roles.map(({ role }) => role))],
+      })),
+    };
+  });
+
+  app.get('/departments/:id/venues', { preHandler: app.authenticate }, async (request) => {
+    const { id } = parseInput(departmentParams, request.params);
+    requireDepartmentHead(request.auth!.user, id);
+    const filters = parseInput(directoryQuery, request.query);
+    return listVenues(db, { ...filters, departmentId: id });
   });
 
   app.get('/admin/departments', {

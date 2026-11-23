@@ -259,6 +259,7 @@ export const approvalDecisionInputSchema = z
     decision: z.enum(APPROVAL_DECISIONS),
     expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
     comments: z.string().trim().max(1000).optional().or(z.literal('')),
+    reviewedCompetingRequestIds: z.array(z.string().uuid()).optional(),
   })
   .superRefine((value, context) => {
     if (value.decision !== 'APPROVED' && (value.comments?.trim().length ?? 0) < 5) {
@@ -275,7 +276,7 @@ export const approvalDecisionInputSchema = z
 export type ApprovalDecisionInput = z.infer<typeof approvalDecisionInputSchema>;
 
 export const approvalInboxQuerySchema = z.object({
-  view: z.enum(['pending', 'decided', 'all']).optional(),
+  view: z.enum(['pending', 'decided', 'all', 'overlaps']).optional(),
   limit: z.coerce.number().int().min(1).max(50).default(25),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -463,6 +464,22 @@ export interface SessionUser {
   status: UserStatus;
   department: { id: string; code: string; name: string };
   roles: SessionRole[];
+}
+
+export interface BookingPerson {
+  name: string;
+  department: { id: string; code: string; name: string };
+}
+
+export interface BookingPeople {
+  requester: (BookingPerson & { kind: 'STUDENT' | 'FACULTY' | 'OTHER' }) | null;
+  facultyCoordinator: BookingPerson | null;
+}
+
+export interface BookingReviewNote {
+  role: RoleName;
+  stepName: string;
+  note: string;
 }
 
 export interface ApiErrorBody {

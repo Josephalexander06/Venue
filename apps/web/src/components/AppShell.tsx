@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Bell, CalendarCheck, GearSix, House, MapTrifold, Tray } from '@phosphor-icons/react';
+import { Bell, Buildings, CalendarCheck, GearSix, House, MapTrifold, Tray } from '@phosphor-icons/react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../auth';
 import { api } from '../lib/api';
@@ -12,7 +12,7 @@ function navClass({ isActive }: { isActive: boolean }) {
 }
 
 export function AppShell() {
-  const { user, isAdmin, isApprover, isFacultyOnlyApprover, canBook, approvalOnly } = useAuth();
+  const { user, isAdmin, isApprover, isFacultyOnlyApprover, canBook, approvalOnly, isDepartmentHead } = useAuth();
   const { pathname } = useLocation();
   const inbox = useQuery({
     queryKey: APPROVAL_PREVIEW_KEY,
@@ -33,6 +33,7 @@ export function AppShell() {
       : { to: '/home', label: 'Home', short: 'Home', icon: House },
     ...(canBook ? [browse, { to: '/bookings', label: 'My bookings', short: 'Mine', icon: CalendarCheck }] : []),
     ...(isFacultyOnlyApprover ? [{ to: '/approvals', label: 'Incoming requests', short: 'Requests', icon: Tray, count }] : []),
+    ...(isDepartmentHead ? [{ to: '/department', label: 'Department', short: 'Department', icon: Buildings }] : []),
     ...(isAdmin ? [{ to: '/admin', label: 'Admin', short: 'Admin', icon: GearSix }] : []),
   ];
 

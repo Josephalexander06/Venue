@@ -4,6 +4,8 @@ import type {
   ApprovalDecisionInput,
   ApproverRole,
   AuthSessionResponse,
+  BookingPeople,
+  BookingReviewNote,
   DepartmentInput,
   DepartmentUpdateInput,
   EventInput,
@@ -206,6 +208,15 @@ export interface OrganizerCandidate {
   department: { id: string; code: string; name: string };
 }
 
+export interface DepartmentMember {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  status: UserStatus;
+  roles: RoleName[];
+}
+
 export interface DepartmentWithStats extends Department {
   createdAt: string;
   updatedAt: string;
@@ -311,6 +322,11 @@ export interface AllotmentCancelResult {
 
 export interface CompetingRequestItem {
   request: RequestView;
+  canReview: boolean;
+  departmentNote: string | null;
+  reviewNotes: BookingReviewNote[];
+  people: BookingPeople | null;
+  stage: string | null;
   event: EventSummary;
   organizer: {
     id: string;
@@ -350,12 +366,17 @@ export interface RequestDetailView {
   };
 }
 
+export interface ApprovalDetailView extends RequestDetailView {
+  people: BookingPeople;
+}
+
 export interface ApprovalInboxItem {
   request: RequestView;
   event: EventSummary;
   step: WorkflowStepView;
   conflicts: { confirmedCount: number; pendingCount: number };
   needsAction: boolean;
+  people: BookingPeople;
 }
 
 export interface ApprovalInboxList {
@@ -559,6 +580,14 @@ export const api = {
     return request<{ event: EventView }>(`/events/${id}`);
   },
 
+  async departmentDirectory(departmentId: string, view: 'members' | 'venues', params: { search: string; limit: number; offset: number }, signal?: AbortSignal) {
+    const query = new URLSearchParams({ search: params.search, limit: String(params.limit), offset: String(params.offset) });
+    const path = `/departments/${departmentId}/${view}?${query}`;
+    return view === 'members'
+      ? request<{ total: number; members: DepartmentMember[] }>(path, { signal })
+      : request<VenueList>(path, { signal });
+  },
+
   departmentFaculty(departmentId: string) {
     return request<{ faculty: FacultyCandidate[] }>(`/departments/${departmentId}/faculty`);
   },
@@ -585,7 +614,7 @@ export const api = {
     return request<RequestDetailView>(`/venue-requests/${id}`);
   },
 
-  approvalInbox(params: { limit?: number; offset?: number; view?: 'pending' | 'decided' | 'all' } = {}, signal?: AbortSignal) {
+  approvalInbox(params: { limit?: number; offset?: number; view?: 'pending' | 'decided' | 'all' | 'overlaps' } = {}, signal?: AbortSignal) {
     const query = new URLSearchParams();
     query.set('limit', String(params.limit ?? 25));
     query.set('offset', String(params.offset ?? 0));
@@ -594,7 +623,7 @@ export const api = {
   },
 
   approvalDetail(id: string) {
-    return request<RequestDetailView>(`/approvals/${id}`);
+    return request<ApprovalDetailView>(`/approvals/${id}`);
   },
 
   decideApproval(id: string, input: ApprovalDecisionInput) {

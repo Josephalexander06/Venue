@@ -646,6 +646,30 @@ describe('Phase 5 — Event collaboration, faculty endorsement and admin departm
     expect(afterEdit?.facultyEndorserId).toBeNull();
   });
 
+  it('scopes the HOD directory to the department they lead', async () => {
+    const hod = await createTestUser({ role: 'HOD', departmentCode: 'CS' });
+    const faculty = await createTestUser({ role: 'FACULTY', departmentCode: 'ME' });
+    const { venue } = await createVenueWithHodWorkflow(hod.department.id);
+    const { venue: otherVenue } = await createVenueWithHodWorkflow(faculty.department.id);
+    const session = await login(app, hod.user.email, hod.password);
+    const headers = mutationHeaders(session);
+    const path = `/api/v1/departments/${hod.department.id}`;
+    const members = await app.inject({ url: `${path}/members`, headers });
+    expect(members.statusCode).toBe(200);
+    expect(members.json()).toMatchObject({ total: 1, members: [{ id: hod.user.id, roles: ['HOD'] }] });
+    expect(members.json().members[0]).not.toHaveProperty('phone');
+    const ownVenues = (await app.inject({ url: `${path}/venues`, headers })).json();
+    expect(ownVenues).toMatchObject({ total: 1, venues: [{ id: venue.id }] });
+    expect(ownVenues.venues).not.toContainEqual(expect.objectContaining({ id: otherVenue.id }));
+
+    for (const view of ['members', 'venues']) {
+      const denied = await app.inject({ url: `/api/v1/departments/${faculty.department.id}/${view}`, headers });
+      expect(denied.statusCode).toBe(403);
+      const other = await login(app, faculty.user.email, faculty.password);
+      expect((await app.inject({ url: `${path}/${view}`, headers: mutationHeaders(other) })).statusCode).toBe(403);
+    }
+  });
+
   it('supports administrative department management and department faculty listing', async () => {
     const admin = await createTestUser({ role: 'ADMINISTRATOR' });
     const faculty = await createTestUser({ role: 'FACULTY', departmentCode: 'CS' });

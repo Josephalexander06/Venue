@@ -1,7 +1,9 @@
-import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
-import type { AllotmentConfirmInput, RoleName, WorkflowScopeType } from '@venue/shared';
+import { and, asc, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
+import { APPROVAL_ONLY_ROLES } from '@venue/shared';
+import type { AllotmentConfirmInput, BookingReviewNote, RoleName, WorkflowScopeType } from '@venue/shared';
 import type { Database, DbTransaction } from '../../db/index.js';
 import {
+  approvalDecisions,
   approvalInstances,
   departments,
   events,
@@ -16,8 +18,9 @@ import { bufferedRange } from '../../lib/booking.js';
 import { AppError } from '../../lib/errors.js';
 import { notifyRequestParticipants } from '../../lib/notifications.js';
 import { findPostgresError } from '../../lib/postgres-error.js';
-import { eligibleForStep, loadViewerRoles } from '../approvals/eligibility.js';
+import { eligibleForStep, isWorkflowParticipant, loadViewerRoles } from '../approvals/eligibility.js';
 import { isEventCollaborator } from '../events/service.js';
+import { bookingPeople, loadBookingPeople } from '../requests/people.js';
 import { getRequestView } from '../requests/service.js';
 import { mapRequestRow, requestSelection, type EventSummary } from '../requests/view.js';
 
@@ -334,11 +337,18 @@ export async function confirmAllotment(
         )
         .returning({ id: venueRequests.id, eventId: venueRequests.eventId });
 
-      if (input.reviewedCompetingRequestIds) {
-        const reviewed = new Set(input.reviewedCompetingRequestIds);
-        if (supersededRows.some((row) => !reviewed.has(row.id))) {
-          throw new AppError(409, 'COMPETING_REQUESTS_CHANGED', 'New competing requests arrived. Review them before confirming.');
-        }
+      const reviewed = new Set(input.reviewedCompetingRequestIds);
+      const needsConflictReview = !viewer.isAdmin && finalStep && APPROVAL_ONLY_ROLES.includes(finalStep.requiredRole);
+      if (needsConflictReview && supersededRows.length > 0 && !input.reviewedCompetingRequestIds) {
+        throw new AppError(409, 'COMPETING_REVIEW_REQUIRED', 'Compare the competing requests before allotting this venue.');
+      }
+      if (input.reviewedCompetingRequestIds && (
+        supersededRows.some((row) => !reviewed.has(row.id)) || (needsConflictReview && reviewed.size !== supersededRows.length)
+      )) {
+        throw new AppError(409, 'COMPETING_REQUESTS_CHANGED', 'The competing requests changed. Review them before confirming.');
+      }
+      if (needsConflictReview && supersededRows.length > 0 && (input.remarks?.trim().length ?? 0) < 5) {
+        throw new AppError(400, 'PRIORITY_REASON_REQUIRED', 'Explain why the selected request has priority.');
       }
 
       // Invalidate active approval instances for all superseded requests
@@ -397,6 +407,7 @@ export async function confirmAllotment(
           remarks: input.remarks ?? null,
           isAdministrativeOverride: viewer.isAdmin && !normallyEligible,
           supersededCount: supersededRows.length,
+          reviewedCompetingRequestIds: input.reviewedCompetingRequestIds,
         },
       });
 
@@ -635,6 +646,7 @@ export async function getCompetingRequests(
     .select({
       ...requestSelection,
       creatorId: events.creatorId,
+      facultyCoordinatorId: events.facultyCoordinatorId,
       title: events.title,
       description: events.description,
       expectedAttendance: events.expectedAttendance,
@@ -644,6 +656,7 @@ export async function getCompetingRequests(
       departmentId: departments.id,
       departmentCode: departments.code,
       departmentName: departments.name,
+      venueDepartmentId: venues.departmentId,
       creatorFirstName: users.firstName,
       creatorLastName: users.lastName,
       creatorEmail: users.email,
@@ -665,28 +678,75 @@ export async function getCompetingRequests(
         sql`${venueRequests.effectiveRange} && tstzrange(${effective.start.toISOString()}, ${effective.end.toISOString()}, '[)')`,
       ),
     )
-    .orderBy(asc(venueRequests.createdAt));
+    .orderBy(asc(venueRequests.startTime), asc(events.title), asc(venueRequests.id));
 
+  if (!rows.length) return { targetRequestId: requestId, competingRequests: [] };
+  const latest = db.selectDistinctOn([approvalInstances.venueRequestId], {
+    requestId: approvalInstances.venueRequestId,
+    instanceId: approvalInstances.id,
+  }).from(approvalInstances)
+    .where(inArray(approvalInstances.venueRequestId, rows.map(({ id }) => id)))
+    .orderBy(asc(approvalInstances.venueRequestId), desc(approvalInstances.createdAt), desc(approvalInstances.id))
+    .as('latest_competing_round');
+  const [viewerRoles, steps, noteRows, people] = await Promise.all([
+    loadViewerRoles(db, viewer.userId),
+    db.select().from(workflowSteps).where(inArray(workflowSteps.workflowId, [...new Set(rows.map(({ workflowId }) => workflowId))])),
+    db.select({ requestId: latest.requestId, role: workflowSteps.requiredRole,
+      stepName: approvalDecisions.stepName, note: approvalDecisions.remarks })
+      .from(latest)
+      .innerJoin(approvalDecisions, eq(approvalDecisions.approvalInstanceId, latest.instanceId))
+      .innerJoin(workflowSteps, eq(workflowSteps.id, approvalDecisions.workflowStepId))
+      .where(and(inArray(workflowSteps.requiredRole, APPROVAL_ONLY_ROLES),
+        eq(approvalDecisions.decision, 'APPROVED'), isNotNull(approvalDecisions.remarks)))
+      .orderBy(asc(approvalDecisions.stepOrder), asc(approvalDecisions.decidedAt)),
+    loadBookingPeople(db, rows),
+  ]);
+  const stepsByWorkflow = new Map<string, typeof steps>();
+  for (const step of steps) {
+    const workflow = stepsByWorkflow.get(step.workflowId) ?? [];
+    workflow.push(step);
+    stepsByWorkflow.set(step.workflowId, workflow);
+  }
+  const notes = new Map<string, BookingReviewNote[]>();
+  for (const { requestId: id, role, stepName, note } of noteRows) {
+    if (!note) continue;
+    const review = notes.get(id) ?? [];
+    review.push({ role, stepName, note });
+    notes.set(id, review);
+  }
   return {
     targetRequestId: requestId,
-    competingRequests: rows.map((r) => ({
-      request: mapRequestRow(r),
-      event: {
-        id: r.eventId,
-        title: r.title,
-        description: r.description,
-        expectedAttendance: r.expectedAttendance,
-        status: r.eventStatus,
-        department: { id: r.departmentId, code: r.departmentCode, name: r.departmentName },
-        createdAt: r.eventCreatedAt.toISOString(),
-        updatedAt: r.eventUpdatedAt.toISOString(),
-      },
-      organizer: {
-        id: r.creatorId,
-        firstName: r.creatorFirstName,
-        lastName: r.creatorLastName,
-        email: r.creatorEmail,
-      },
-    })),
+    competingRequests: rows.map((r) => {
+      const workflow = stepsByWorkflow.get(r.workflowId) ?? [];
+      const canReview = viewer.isAdmin || isWorkflowParticipant(viewerRoles, workflow, r.departmentId, r.venueDepartmentId);
+      const reviewNotes = canReview ? notes.get(r.id) ?? [] : [];
+      const stage = r.status === 'APPROVED_PENDING_ALLOTMENT' ? 'Final allotment'
+        : r.currentStepOrder === 0 ? 'Faculty endorsement'
+          : workflow.find(({ stepOrder }) => stepOrder === r.currentStepOrder)?.stepName ?? null;
+      return {
+        request: mapRequestRow(r),
+        canReview,
+        reviewNotes,
+        departmentNote: reviewNotes.filter(({ role }) => role === 'HOD').at(-1)?.note ?? null,
+        people: canReview ? bookingPeople(r, people) : null,
+        stage,
+        event: {
+          id: r.eventId,
+          title: r.title,
+          description: r.description,
+          expectedAttendance: r.expectedAttendance,
+          status: r.eventStatus,
+          department: { id: r.departmentId, code: r.departmentCode, name: r.departmentName },
+          createdAt: r.eventCreatedAt.toISOString(),
+          updatedAt: r.eventUpdatedAt.toISOString(),
+        },
+        organizer: {
+          id: r.creatorId,
+          firstName: r.creatorFirstName,
+          lastName: r.creatorLastName,
+          email: r.creatorEmail,
+        },
+      };
+    }),
   };
 }

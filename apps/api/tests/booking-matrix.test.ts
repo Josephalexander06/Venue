@@ -112,6 +112,7 @@ describe('booking scenario matrix', () => {
   function final(actor: Actor, request: RequestView, reviewedCompetingRequestIds: string[] = []) {
     return api('POST', `/approvals/${request.id}/approve-and-allot`, actor, {
       expectedUpdatedAt: request.updatedAt, reviewedCompetingRequestIds,
+      remarks: reviewedCompetingRequestIds.length ? 'Priority academic event reviewed' : undefined,
     });
   }
 

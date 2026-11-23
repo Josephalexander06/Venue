@@ -30,14 +30,15 @@ export function AllotmentConfirmDialog({
   const { request, event, conflicts } = detail;
   const competingCount = conflicts.pending.length;
   const blocked = conflicts.confirmed.length > 0 || unavailable;
+  const reasonRequired = isOverride || competingCount > 0;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting || blocked) return;
     setError(null);
 
-    if (isOverride && remarks.trim().length < 5) {
-      setError('An administrative override requires remarks explaining the decision (at least 5 characters).');
+    if (reasonRequired && remarks.trim().length < 5) {
+      setError('Give a reason with at least 5 characters.');
       return;
     }
 
@@ -89,10 +90,11 @@ export function AllotmentConfirmDialog({
         )}
 
         <TextareaField
-          label={isOverride ? 'Administrative reason' : 'Remarks'}
-          optional={!isOverride}
+          label={competingCount > 0 ? 'Why this request has priority' : isOverride ? 'Administrative reason' : 'Remarks'}
+          optional={!reasonRequired}
+          minLength={reasonRequired ? 5 : undefined}
           maxLength={1000}
-          required={isOverride}
+          required={reasonRequired}
           hint="Visible in the audit record and to institutional administrators."
           value={remarks}
           onChange={(e) => setRemarks(e.target.value)}

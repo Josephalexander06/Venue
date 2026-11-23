@@ -1,7 +1,9 @@
 import { and, asc, eq, exists, gt, inArray, isNotNull, ne, notExists, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
+import { APPROVAL_ONLY_ROLES } from '@venue/shared';
 import type {
   ApprovalDecisionInput,
+  BookingPeople,
   RoleName,
   WorkflowScopeType,
 } from '@venue/shared';
@@ -23,10 +25,8 @@ import { isEventCollaborator } from '../events/service.js';
 import { writeAudit } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { notifyRequestParticipants } from '../../lib/notifications.js';
-import {
-  getRequestView,
-  type RequestDetailView,
-} from '../requests/service.js';
+import { findRequestConflicts, getRequestView } from '../requests/service.js';
+import { bookingPeople, loadBookingPeople } from '../requests/people.js';
 import {
   mapRequestRow,
   requestSelection,
@@ -82,6 +82,7 @@ export interface ApprovalInboxItem {
   };
   conflicts: { confirmedCount: number; pendingCount: number };
   needsAction: boolean;
+  people: BookingPeople;
 }
 
 function eventSummary(row: InboxRow): EventSummary {
@@ -107,7 +108,7 @@ function eventSummary(row: InboxRow): EventSummary {
 export async function listApprovalInbox(
   db: Database,
   viewer: Viewer & { roles: ViewerRole[] },
-  page: { limit: number; offset: number; view?: 'pending' | 'decided' | 'all' },
+  page: { limit: number; offset: number; view?: 'pending' | 'decided' | 'all' | 'overlaps' },
 ) {
   const pending = alias(venueRequests, 'pending');
   // The inbox only needs counts. Compare the indexed ranges without loading conflicting events.
@@ -158,7 +159,10 @@ export async function listApprovalInbox(
       ),
     ),
   );
-  const hasDecided = exists(madeDecision);
+  const matchesView = page.view === 'decided' ? exists(madeDecision)
+    : page.view === 'all' ? or(actionable, exists(madeDecision))
+      : page.view === 'overlaps' ? and(actionable, sql`(${confirmedCount}) + (${pendingCount}) > 0`)
+        : actionable;
   const query = db
     .select({
       ...requestSelection,
@@ -202,15 +206,22 @@ export async function listApprovalInbox(
       eq(workflowSteps.workflowId, venueRequests.workflowId),
       eq(workflowSteps.stepOrder, venueRequests.currentStepOrder),
     ))
-    .where(page.view === 'decided' ? hasDecided : page.view === 'all' ? or(actionable, hasDecided) : actionable)
-    .orderBy(asc(venueRequests.createdAt), asc(venueRequests.id));
+    .where(matchesView)
+    .orderBy(
+      ...(page.view === 'overlaps'
+        ? [asc(venues.name), asc(venues.id), asc(venueRequests.startTime)]
+        : [asc(venueRequests.createdAt)]),
+      asc(venueRequests.id),
+    );
 
   const rows = await query.limit(page.limit).offset(page.offset);
   // A page past the end has no window count. Read the count from the first row in that case.
   const total = rows[0]?.total ?? (page.offset ? (await query.limit(1).offset(0))[0]?.total : 0) ?? 0;
+  const people = await loadBookingPeople(db, rows);
   const items = rows.map((row) => ({
     request: mapRequestRow(row),
     needsAction: row.needsAction,
+    people: bookingPeople(row, people),
     event: eventSummary(row),
     step: row.step ? {
       ...row.step,
@@ -234,8 +245,10 @@ export async function getApprovalDetail(
   db: Database,
   requestId: string,
   viewer: Viewer,
-): Promise<RequestDetailView> {
-  return getRequestView(db, requestId, viewer);
+) {
+  const detail = await getRequestView(db, requestId, viewer);
+  const participant = { ...detail.request, facultyCoordinatorId: detail.event.facultyCoordinatorId };
+  return { ...detail, people: bookingPeople(participant, await loadBookingPeople(db, [participant])) };
 }
 
 async function loadLockedRequest(db: DbExecutor, requestId: string) {
@@ -512,6 +525,21 @@ async function recordDecision(
     }
 
     assertCurrentReview(request.updatedAt, input.expectedUpdatedAt);
+
+    if (input.decision === 'APPROVED' && !viewer.isAdmin && !step.isFinalAllotmentStep &&
+      APPROVAL_ONLY_ROLES.includes(step.requiredRole)) {
+      const conflicts = await findRequestConflicts(tx, { ...request, excludeRequestId: request.id });
+      const reviewed = new Set(input.reviewedCompetingRequestIds);
+      if (conflicts.pending.length && !input.reviewedCompetingRequestIds) {
+        throw new AppError(409, 'COMPETING_REVIEW_REQUIRED', 'Compare the competing requests before approving.');
+      }
+      if (reviewed.size !== conflicts.pending.length || conflicts.pending.some(({ requestId }) => !reviewed.has(requestId))) {
+        throw new AppError(409, 'COMPETING_REQUESTS_CHANGED', 'The competing requests changed. Review them before approving.');
+      }
+      if (conflicts.pending.length && (input.comments?.trim().length ?? 0) < 5) {
+        throw new AppError(400, 'PRIORITY_REASON_REQUIRED', 'Explain why the selected request has priority.');
+      }
+    }
 
     if (input.decision !== 'CHANGES_REQUESTED') {
       const [existingDecision] = await tx

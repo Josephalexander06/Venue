@@ -521,3 +521,34 @@
 @media (max-width: 720px) {
   .product-nav-icon .product-nav-badge { position: absolute; top: -3px; left: calc(100% - 3px); height: 16px; min-width: 16px; padding-inline: 4px; }
 }
+
+.approval-detail-page:has(.conflict-review) { max-width: 960px; }
+.conflict-review { scroll-margin-top: 20px; }
+.conflict-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.comparison-option { display: grid; align-content: start; justify-items: start; gap: 10px; }
+.comparison-option dl { display: grid; gap: 7px; width: 100%; margin: 0; }
+.comparison-option dt { color: var(--ink-3); font-size: .86rem; font-weight: 650; }
+.comparison-option dd { margin: 0; white-space: pre-line; }
+.comparison-option .btn { margin-top: 4px; white-space: normal; text-align: center; }
+.comparison-option:has(button[aria-pressed="true"]) { border-color: var(--accent); background: var(--accent-soft); }
+@media (max-width: 600px) {
+  .conflict-options { grid-template-columns: minmax(0, 1fr); }
+}
+
+.booking-people {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+}
+.booking-people > div {
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+.booking-people dt { color: var(--ink-3); font-size: .82rem; font-weight: 650; }
+.booking-people dd { display: grid; align-items: start; gap: 1px; margin: 0; white-space: normal; }
+.booking-people dd span { color: var(--ink-2); font-size: .88rem; }

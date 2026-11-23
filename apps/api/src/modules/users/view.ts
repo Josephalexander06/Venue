@@ -94,9 +94,10 @@ export async function findUserView(db: Database, userId: string): Promise<UserVi
 
 export async function listUserViews(
   db: Database,
-  filters: { status?: UserStatus; search?: string; limit: number; offset: number },
+  filters: { status?: UserStatus; departmentId?: string; search?: string; limit: number; offset: number },
 ) {
   const conditions: SQL[] = [];
+  if (filters.departmentId) conditions.push(eq(users.departmentId, filters.departmentId));
   if (filters.status) conditions.push(eq(users.status, filters.status));
   if (filters.search) {
     const pattern = `%${filters.search}%`;
@@ -114,7 +115,7 @@ export async function listUserViews(
     .from(users)
     .innerJoin(departments, eq(departments.id, users.departmentId))
     .where(where)
-    .orderBy(desc(users.createdAt))
+    .orderBy(desc(users.createdAt), desc(users.id))
     .limit(filters.limit)
     .offset(filters.offset);
 
