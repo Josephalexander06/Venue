@@ -151,10 +151,20 @@ test('registration, browse-only access, venue-first booking, endorsement and all
     await expect(student.getByText('Booking details', { exact: true })).toHaveCount(0);
     await expect(student.getByRole('link', { name: 'Modify booking' })).toBeVisible();
 
-    await faculty.goto('/approvals');
+    await faculty.reload();
+    const primary = faculty.getByRole('navigation', { name: 'Primary', exact: true });
+    const desktopLink = primary.getByRole('link', { name: 'Incoming requests, 1 pending' });
+    await desktopLink.click();
+    await expect(faculty.getByRole('heading', { name: /Incoming requests/ })).toBeVisible();
+    await primary.getByRole('link', { name: 'Home', exact: true }).click();
+    await faculty.setViewportSize({ width: 375, height: 812 });
+    const mobileNav = faculty.getByRole('navigation', { name: 'Primary mobile' });
+    const mobileLink = mobileNav.getByRole('link', { name: 'Incoming requests, 1 pending' });
+    await mobileLink.click();
     const card = faculty.getByRole('article').filter({ hasText: title });
     await card.getByRole('button', { name: 'Endorse' }).click();
     await expect(card).toHaveCount(0);
+    await expect(mobileNav.getByRole('link', { name: 'Requests', exact: true })).toBeVisible();
     await faculty.getByRole('button', { name: 'Decided' }).click();
     await expect(card).toBeVisible();
 

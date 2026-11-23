@@ -188,7 +188,7 @@ test('capture rendered workspaces with booking data', async ({ browser, baseURL 
     await capture(studentPage, 'desktop-venue', `/venues/${auditorium.id}?date=${day}`, 'Main Auditorium', '.time-grid button');
     await capture(studentPage, 'desktop-bookings', '/bookings', 'My bookings', '.booking-card');
     const facultyPage = await faculty.newPage();
-    await capture(facultyPage, 'desktop-endorsements', '/approvals', 'Approvals', '.approval-card');
+    await capture(facultyPage, 'desktop-endorsements', '/approvals', 'Incoming requests', '.approval-card');
     await capture(facultyPage, 'desktop-faculty-home', '/home', 'What are you planning?', '.booking-card');
     await capture(adminPage, 'desktop-users', '/admin/users', 'User accounts', '.admin-record');
     await capture(adminPage, 'desktop-admin-venues', '/admin/venues', 'Manage venues', '.admin-record');

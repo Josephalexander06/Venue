@@ -10,7 +10,7 @@ import { formatShortDay } from '../lib/datetime';
 
 export function HomePage() {
   usePageTitle('Home');
-  const { user, isApprover, canBook, approvalOnly } = useAuth();
+  const { user, isApprover, isFacultyOnlyApprover, canBook, approvalOnly } = useAuth();
   const events = useQuery({ queryKey: ['my-events'], queryFn: api.myEvents, enabled: canBook });
   const inbox = useQuery({
     queryKey: APPROVAL_PREVIEW_KEY, queryFn: () => api.approvalInbox({ limit: 3 }),
@@ -36,7 +36,7 @@ export function HomePage() {
 
     {isApprover && Boolean(inbox.data?.total) && <section className="product-section">
       <div className="product-heading-row"><h2>Action needed <span className="product-count">{inbox.data!.total}</span></h2>
-        <Link className="text-link" to="/approvals">Approval inbox <ArrowRight size={17} /></Link>
+        <Link className="text-link" to="/approvals">{isFacultyOnlyApprover ? 'Incoming requests' : 'Approval inbox'} <ArrowRight size={17} /></Link>
       </div>
       <div className="product-grid">{inbox.data!.items.map(({ request, event, step }) => <article className="product-panel home-action" key={request.id}>
         <span className="product-icon"><ClipboardText size={22} aria-hidden="true" /></span>

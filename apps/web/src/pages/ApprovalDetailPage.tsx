@@ -17,12 +17,12 @@ import { displaySlot } from '../lib/slot-schedule';
 
 export function ApprovalDetailPage() {
   const { id = '' } = useParams();
-  const { isApprover } = useAuth();
+  const { isApprover, isFacultyOnlyApprover } = useAuth();
   const query = useQuery({ queryKey: ['approval', id], queryFn: () => api.approvalDetail(id) });
   usePageTitle('Review booking');
   return <div className="product-page approval-detail-page">
     <Link className="text-link back-link" to={isApprover ? '/approvals' : '/bookings'}>
-      <ArrowLeft size={18} /> {isApprover ? 'Approvals' : 'My bookings'}
+      <ArrowLeft size={18} /> {isFacultyOnlyApprover ? 'Incoming requests' : isApprover ? 'Approvals' : 'My bookings'}
     </Link>
     {query.isPending ? <Skeleton className="detail-skeleton" /> : !query.data ? <Alert tone="danger" title="Could not load this request">
       <button type="button" className="inline-link" onClick={() => void query.refetch()}>Try again</button>

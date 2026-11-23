@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, CalendarBlank, Check, CheckCircle, MapPin, WarningCircle } from '@phosphor-icons/react';
-import { usePageTitle } from '../auth';
+import { useAuth, usePageTitle } from '../auth';
 import { APPROVAL_PREVIEW_KEY } from '../components/AppShell';
 import { ApprovalDecisionDialog } from '../components/approvals/ApprovalDecisionDialog';
 import { RequestStatusBadge } from '../components/booking';
@@ -19,7 +19,9 @@ const TABS = [
 ] as const;
 
 export function ApprovalInboxPage() {
-  usePageTitle('Approvals');
+  const { isFacultyOnlyApprover } = useAuth();
+  const title = isFacultyOnlyApprover ? 'Incoming requests' : 'Approvals';
+  usePageTitle(title);
   const client = useQueryClient();
   const { pushToast } = useToast();
   const [view, setView] = useState<(typeof TABS)[number]['id']>('pending');
@@ -54,7 +56,7 @@ export function ApprovalInboxPage() {
 
   return <div className="product-page approvals-page">
     <div className="product-page-heading"><div>
-      <h1>Approvals {Boolean(preview.data?.total) && <span className="product-count">{preview.data!.total}</span>}</h1>
+      <h1>{title} {Boolean(preview.data?.total) && <span className="product-count">{preview.data!.total}</span>}</h1>
       <p>Review venue requests that need your decision.</p>
     </div></div>
     <div className="product-chips" aria-label="Filter approvals">
