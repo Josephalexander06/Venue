@@ -13,6 +13,8 @@ import { AuthLayout } from '../components/AuthLayout';
 import {
   Alert,
   Button,
+  Dialog,
+  GoogleLogo,
   PasswordField,
   SelectField,
   TextField,
@@ -29,6 +31,9 @@ export function RegisterPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [confirmError, setConfirmError] = useState<string>();
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
+  const [googleEmail, setGoogleEmail] = useState('');
+  const [googleName, setGoogleName] = useState('');
 
   const departments = useQuery({
     queryKey: ['departments'],
@@ -41,6 +46,17 @@ export function RegisterPage() {
     mutationFn: api.register,
     onSuccess: () => {
       navigate(`/register/pending?email=${encodeURIComponent(email.trim().toLowerCase())}`, {
+        replace: true,
+      });
+    },
+  });
+
+  const googleAuthMutation = useMutation({
+    mutationFn: api.googleAuth,
+    onSuccess: (result) => {
+      setShowGoogleModal(false);
+      const targetEmail = 'email' in result ? result.email : googleEmail;
+      navigate(`/register/pending?email=${encodeURIComponent(targetEmail)}`, {
         replace: true,
       });
     },
@@ -81,6 +97,23 @@ export function RegisterPage() {
         <p className="auth-subtitle">
           A college administrator will verify your details before activating your account.
         </p>
+
+        {/* Primary Google Auth Option (Consumer Booking Style) */}
+        <button
+          type="button"
+          className="btn-google"
+          onClick={() => {
+            setGoogleEmail(email || 'user@college.edu');
+            setShowGoogleModal(true);
+          }}
+        >
+          <GoogleLogo size={20} />
+          <span>Sign up with Google</span>
+        </button>
+
+        <div className="auth-divider">
+          <span>or fill details manually</span>
+        </div>
 
         {generalError && (
           <div className="auth-alert">
@@ -240,6 +273,86 @@ export function RegisterPage() {
         <p className="auth-switch">
           Already approved? <Link to="/login">Sign in</Link>
         </p>
+
+        {/* Google Authentication Dialog */}
+        <Dialog
+          open={showGoogleModal}
+          onClose={() => setShowGoogleModal(false)}
+          title="Sign up with Google"
+        >
+          <div className="google-auth-modal-content">
+            <div className="google-auth-badge">
+              <GoogleLogo size={28} />
+              <div>
+                <strong>Campus Venue Google Account Verification</strong>
+                <p>Register instantly using your college Google Workspace</p>
+              </div>
+            </div>
+
+            {googleAuthMutation.isError && (
+              <div style={{ marginTop: '12px' }}>
+                <Alert tone="danger" title="Registration failed">
+                  {googleAuthMutation.error instanceof ApiError
+                    ? googleAuthMutation.error.message
+                    : 'Could not connect with Google.'}
+                </Alert>
+              </div>
+            )}
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const parts = googleName.trim().split(' ');
+                googleAuthMutation.mutate({
+                  email: googleEmail.trim().toLowerCase(),
+                  firstName: parts[0] || undefined,
+                  lastName: parts.slice(1).join(' ') || undefined,
+                });
+              }}
+              className="form-stack"
+              style={{ marginTop: '16px' }}
+            >
+              <TextField
+                name="googleEmail"
+                label="College Google email"
+                type="email"
+                placeholder="your.name@college.edu"
+                value={googleEmail}
+                onChange={(e) => setGoogleEmail(e.target.value)}
+                leadingIcon={<EnvelopeSimple size={18} />}
+                required
+              />
+              <TextField
+                name="googleName"
+                label="Your full name"
+                placeholder="Ananya Rao"
+                value={googleName}
+                onChange={(e) => setGoogleName(e.target.value)}
+                leadingIcon={<User size={18} />}
+                required
+              />
+              <p className="field-hint" style={{ fontSize: '12px', color: 'var(--ink-3)' }}>
+                Your account will be submitted to the review queue for administrator verification.
+              </p>
+              <div className="modal-actions" style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setShowGoogleModal(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  loading={googleAuthMutation.isPending}
+                >
+                  Submit for verification
+                </Button>
+              </div>
+            </form>
+          </div>
+        </Dialog>
       </div>
     </AuthLayout>
   );

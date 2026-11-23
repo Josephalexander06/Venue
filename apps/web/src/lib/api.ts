@@ -452,6 +452,16 @@ export const api = {
     });
   },
 
+  googleAuth(input: { email: string; firstName?: string; lastName?: string }) {
+    return request<
+      | AuthSessionResponse
+      | { status: UserStatus; message?: string; isNew?: boolean; email: string }
+    >('/auth/google', {
+      method: 'POST',
+      body: jsonBody(input),
+    });
+  },
+
   register(input: RegistrationInput) {
     return request<{
       user: { id: string; email: string; status: UserStatus; createdAt: string };

@@ -4,8 +4,10 @@ import type { AppEnv } from '../../env.js';
 import type { Database } from '../../db/index.js';
 import { parseInput } from '../../lib/validation.js';
 import { CSRF_COOKIE, SESSION_COOKIE } from '../../lib/tokens.js';
+import { z } from 'zod';
 import {
   authenticateCredentials,
+  authenticateOrRegisterGoogle,
   createSession,
   registerUser,
   revokeSession,
@@ -66,6 +68,48 @@ const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (app, { db, env 
         user,
         csrfToken: request.csrfToken ?? request.cookies[CSRF_COOKIE] ?? '',
       };
+    },
+  );
+
+  app.post(
+    '/google',
+    { config: { rateLimit: { max: env.NODE_ENV === 'test' ? 1000 : 10, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const googleSchema = z.object({
+        email: z.string().email(),
+        firstName: z.string().optional(),
+        lastName: z.string().optional(),
+      });
+      const input = parseInput(googleSchema, request.body);
+      const result = await authenticateOrRegisterGoogle(db, input, {
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'],
+      });
+
+      if (result.status === 'ACTIVE' && result.user) {
+        const session = await createSession(db, result.user.id, env.SESSION_TTL_HOURS, {
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent'],
+        });
+
+        reply.setCookie(SESSION_COOKIE, session.token, {
+          ...cookieBase,
+          httpOnly: true,
+          expires: session.expiresAt,
+        });
+
+        return {
+          user: result.user,
+          csrfToken: request.csrfToken ?? request.cookies[CSRF_COOKIE] ?? '',
+        };
+      }
+
+      return reply.code(200).send({
+        status: result.status,
+        message: result.message,
+        isNew: result.isNew,
+        email: input.email,
+      });
     },
   );
 

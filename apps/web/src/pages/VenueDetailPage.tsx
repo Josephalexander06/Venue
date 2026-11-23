@@ -428,6 +428,27 @@ export function VenueDetailPage() {
             >
               <legend className="sr-only">Venue request</legend>
               <h3 className="booking-section-title">Schedule</h3>
+              <div className="slot-quick-chips" aria-label="Quick time slots">
+                <span className="slot-chips-label">Presets:</span>
+                {[
+                  { label: 'Morning (9–11 AM)', start: '09:00', end: '11:00' },
+                  { label: 'Midday (11 AM–1 PM)', start: '11:00', end: '13:00' },
+                  { label: 'Afternoon (2–4 PM)', start: '14:00', end: '16:00' },
+                  { label: 'Evening (4–6 PM)', start: '16:00', end: '18:00' },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    className={`slot-chip ${startTime === preset.start && endTime === preset.end ? 'is-selected' : ''}`}
+                    onClick={() => {
+                      setStartTime(preset.start);
+                      setEndTime(preset.end);
+                    }}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
               <div className="booking-time-grid">
                 <BookingDateField
                   label="Date"
@@ -653,6 +674,20 @@ export function VenueDetailPage() {
           </form>
         </aside>
       </div>
+
+      {venue.isActive && (
+        <div className="mobile-venue-dock-bar" aria-label="Quick reservation action">
+          <div className="mobile-dock-info">
+            <span className="mobile-dock-date">{formatDate(selectedDate)}</span>
+            <span className="mobile-dock-time">
+              {slot ? `${startTime} - ${endTime}` : 'Select a time slot'}
+            </span>
+          </div>
+          <a href="#booking-heading" className="btn btn-primary btn-md">
+            {editing ? 'Update slot' : canSubmit ? 'Reserve now' : 'Select slot'}
+          </a>
+        </div>
+      )}
     </>
   );
 }

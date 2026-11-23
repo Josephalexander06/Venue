@@ -1,6 +1,15 @@
 import { Link, Navigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, CalendarBlank, CheckSquareOffset, Plus } from '@phosphor-icons/react';
+import {
+  ArrowRight,
+  Buildings,
+  CalendarBlank,
+  ChalkboardTeacher,
+  CheckSquareOffset,
+  Desktop,
+  Plus,
+  Sparkle,
+} from '@phosphor-icons/react';
 import type { RoleName } from '@venue/shared';
 import { useAuth, usePageTitle } from '../auth';
 import { RequestStatusBadge } from '../components/booking';
@@ -100,6 +109,41 @@ export function HomePage() {
           </>
         }
       />
+
+      {/* Quick Booking Categories (Booking platform style) */}
+      <section className="home-quick-booking" aria-label="Quick category discovery">
+        <h2 className="sr-only">Venue Categories</h2>
+        <div className="home-category-grid">
+          <Link to="/venues?facility=stage" className="home-category-card">
+            <span className="home-category-icon is-auditorium">
+              <Buildings size={22} />
+            </span>
+            <strong>Auditoriums</strong>
+            <span>Grand halls & stages</span>
+          </Link>
+          <Link to="/venues?facility=projector" className="home-category-card">
+            <span className="home-category-icon is-seminar">
+              <ChalkboardTeacher size={22} />
+            </span>
+            <strong>Seminar Halls</strong>
+            <span>Presentations & talks</span>
+          </Link>
+          <Link to="/venues?facility=wifi" className="home-category-card">
+            <span className="home-category-icon is-lab">
+              <Desktop size={22} />
+            </span>
+            <strong>Computer Labs</strong>
+            <span>Workshops & hackathons</span>
+          </Link>
+          <Link to="/venues?facility=ac" className="home-category-card">
+            <span className="home-category-icon is-conference">
+              <Sparkle size={22} />
+            </span>
+            <strong>Conference Rooms</strong>
+            <span>Meetings & discussions</span>
+          </Link>
+        </div>
+      </section>
 
       <div className={isApprover ? 'workspace-grid' : 'workspace-grid workspace-grid-single'}>
         {isApprover && (

@@ -164,6 +164,27 @@ export function VenuesPage() {
               : 'Choose a date and time, then compare spaces for your event.'}
           actions={<Link to="/my-events" className="text-link venue-search-events">My events <ArrowRight size={16} aria-hidden="true" /></Link>}
         />
+        <div className="venue-date-shortcuts" aria-label="Date shortcuts" style={{ marginBottom: '10px' }}>
+          <span className="shortcut-label">Quick dates:</span>
+          {[
+            { label: 'Tomorrow', days: 1 },
+            { label: 'In 3 days', days: 3 },
+            { label: 'Next week', days: 7 },
+          ].map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              className={`venue-preset-chip ${date === dateInputValue(addDays(new Date(), preset.days)) ? 'is-active' : ''}`}
+              onClick={() => {
+                const nextDate = dateInputValue(addDays(new Date(), preset.days));
+                setDate(nextDate);
+                setTimeError('');
+              }}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
         <form className={eventId ? 'venue-slot-form venue-slot-form-event' : 'venue-slot-form'} onSubmit={checkSlot}>
           <BookingDateField label="Event date" name="venue-date" value={date} onChange={(value) => { setDate(value); setTimeError(''); }} />
           <TextField label="Start time" name="venue-start" type="time" value={start} onChange={(event) => {
@@ -225,6 +246,18 @@ export function VenuesPage() {
             <TextField label="Facility" name="venue-facility" type="search" value={facility}
               onChange={(event) => changeFilter('facility', event.target.value)} maxLength={100}
               placeholder="e.g. Projector" />
+          </div>
+          <div className="venue-quick-filters" aria-label="Quick amenity filters" style={{ marginTop: '8px' }}>
+            {['', 'projector', 'stage', 'ac', 'wifi', 'whiteboard'].map((f) => (
+              <button
+                key={f || 'all'}
+                type="button"
+                className={`venue-preset-chip ${facility.toLowerCase() === f ? 'is-active' : ''}`}
+                onClick={() => changeFilter('facility', f)}
+              >
+                {f ? f.charAt(0).toUpperCase() + f.slice(1) : 'All amenities'}
+              </button>
+            ))}
           </div>
         </div>
 

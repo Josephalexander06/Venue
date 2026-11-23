@@ -96,6 +96,87 @@ export async function authenticateCredentials(
   return user;
 }
 
+export async function authenticateOrRegisterGoogle(
+  db: Database,
+  input: {
+    email: string;
+    firstName?: string;
+    lastName?: string;
+  },
+  context: { ipAddress?: string; userAgent?: string },
+): Promise<{ user?: UserView; status: UserStatus; message?: string; isNew?: boolean }> {
+  const email = input.email.trim().toLowerCase();
+  const [account] = await db
+    .select({ id: users.id, status: users.status })
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+
+  if (account) {
+    if (account.status === 'ACTIVE') {
+      const user = await findUserView(db, account.id);
+      if (!user) throw INVALID_CREDENTIALS();
+      return { user, status: 'ACTIVE' };
+    }
+    if (account.status === 'PENDING_APPROVAL') {
+      return {
+        status: 'PENDING_APPROVAL',
+        message: 'Your Google account is in the review queue. An administrator will verify and approve your account.',
+      };
+    }
+    throw accountStatusError(account.status);
+  }
+
+  // Find a default department to assign new users
+  const [defaultDept] = await db
+    .select({ id: departments.id })
+    .from(departments)
+    .limit(1);
+
+  if (!defaultDept) {
+    throw new AppError(500, 'NO_DEPARTMENTS', 'No departments available for registration.');
+  }
+
+  const randomPassword = `GAuth_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+  const passwordHash = await hashPassword(randomPassword);
+  const firstName = input.firstName?.trim() || email.split('@')[0] || 'Google';
+  const lastName = input.lastName?.trim() || 'User';
+
+  const created = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(users)
+      .values({
+        email,
+        passwordHash,
+        firstName,
+        lastName,
+        departmentId: defaultDept.id,
+        status: 'PENDING_APPROVAL',
+      })
+      .returning({ id: users.id, email: users.email, status: users.status });
+
+    if (!row) throw new Error('User insert returned no row.');
+
+    await writeAudit(tx, {
+      actorId: null,
+      action: 'USER_REGISTERED',
+      entityName: 'users',
+      entityId: row.id,
+      newState: { email: row.email, status: row.status, authProvider: 'google' },
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+    });
+
+    return row;
+  });
+
+  return {
+    status: created.status,
+    message: 'Your account was created via Google. An administrator must verify and approve it before you can book.',
+    isNew: true,
+  };
+}
+
 function accountStatusError(status: UserStatus) {
   switch (status) {
     case 'PENDING_APPROVAL':
